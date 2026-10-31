@@ -486,6 +486,7 @@ class TestLeaseHolderDiagnostics:
 
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
         palace = str(tmp_path / "big" / "palace")
+        (tmp_path / "big").mkdir()
         with palace_write_lease(palace, "mine"):
             owner = OperationLock.default().owner_details()
         assert owner is not None

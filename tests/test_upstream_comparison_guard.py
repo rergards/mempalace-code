@@ -530,8 +530,8 @@ def test_canonical_document_records_the_exact_commit_inventory():
         expected_inventory_lines.append(line)
 
     assert len(merge_groups) == len(set(merge_groups)) == len(decisions)
-    assert len(full_inventory) == 409
-    assert "range contains exactly 409 commits" in document
+    assert len(full_inventory) == 438
+    assert "range contains exactly 438 commits" in document
     assert inventory_lines == expected_inventory_lines
 
 
@@ -936,7 +936,228 @@ def test_repository_manifest_and_document_agree():
     assert errors == []
     assert facts["inventory_anchor_algorithm"] == "sha256"
     assert facts["inventory_anchor_version"] == 1
-    assert facts["inventory_anchor_declared_count"] == 409
-    assert facts["inventory_anchor_derived_count"] == 409
+    assert facts["inventory_anchor_declared_count"] == 438
+    assert facts["inventory_anchor_derived_count"] == 438
     assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
     assert facts["commit_inventory_exact"] is True
+
+
+def _tail_review(tmp_path, **updates):
+    import hashlib
+
+    root = _root(tmp_path / "candidate")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        cwd=root,
+        check=True,
+    )
+    candidate = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    manifest = guard.load_manifest(root)
+    review = {
+        "schema_version": 1,
+        "candidate_sha": candidate,
+        "canonical_repository": REPOSITORY,
+        "branch": BRANCH,
+        "canonical_base": COMMIT,
+        "inventory_anchor_digest": manifest["inventory_anchor"]["digest"],
+        "observed_head": MERGE_ONE,
+        "commits": [
+            {
+                "sha": MERGE_ONE,
+                "release_critical": False,
+                "decision": "irrelevant",
+                "rationale": "Repository metadata does not affect this fork's release.",
+                "source_ref": f"{REPOSITORY}/commit/{MERGE_ONE}",
+            }
+        ],
+    }
+    review.update(updates)
+    path = tmp_path / "accepted-review.json"
+    raw = json.dumps(review).encode()
+    path.write_bytes(raw)
+    return (
+        root,
+        manifest,
+        review,
+        {
+            "root": root,
+            "supplemental_review": path,
+            "accepted_review_sha256": hashlib.sha256(raw).hexdigest(),
+            "candidate_sha": candidate,
+        },
+    )
+
+
+def _tail_reader(review, *, final_head=None, coverage=None):
+    calls = []
+
+    def read(query):
+        calls.append(query.endpoint)
+        if query.endpoint == "github_upstream_head":
+            return _public_result(
+                final_head if len(calls) > 1 and final_head else review["observed_head"]
+            )
+        return _public_result(
+            coverage
+            if coverage is not None
+            else {
+                "base": COMMIT,
+                "head": review["observed_head"],
+                "commits": [item["sha"] for item in review["commits"]],
+            }
+        )
+
+    return read, calls
+
+
+def test_explicit_accepted_noncritical_tail_preserves_all_source_bytes(tmp_path):
+    root, manifest, review, options = _tail_review(tmp_path)
+    before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    reader, calls = _tail_reader(review)
+    facts, errors = guard.check_live(manifest, public_read=reader, **options)
+    assert errors == []
+    assert facts["candidate_sha"] == options["candidate_sha"]
+    assert facts["review_authority"] == "caller accepted exact review SHA-256"
+    assert calls == ["github_upstream_head", "github_upstream_compare", "github_upstream_head"]
+    assert before == {
+        str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()
+    }
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"candidate_sha": "0" * 40},
+        {"canonical_base": "0" * 40},
+        {"inventory_anchor_digest": "0" * 64},
+        {"canonical_repository": "https://github.com/Other/repo"},
+        {"branch": "other"},
+        {"schema_version": 2},
+        {"commits": []},
+        {"observed_head": COMMIT},
+    ],
+)
+def test_supplemental_review_rejects_wrong_bindings(tmp_path, updates):
+    _, manifest, review, options = _tail_review(tmp_path, **updates)
+    reader, calls = _tail_reader(review)
+    _, errors = guard.check_live(manifest, public_read=reader, **options)
+    assert errors
+    assert errors[0].startswith("supplemental-review:")
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["critical", "unknown", "duplicate", "missing-decision", "missing-rationale", "missing-source"],
+)
+def test_supplemental_review_rejects_unresolved_decisions(tmp_path, mutation):
+    import hashlib
+
+    _, manifest, review, options = _tail_review(tmp_path)
+    item = review["commits"][0]
+    if mutation == "critical":
+        item["release_critical"] = True
+    elif mutation == "unknown":
+        item["release_critical"] = "UNKNOWN"
+    elif mutation == "duplicate":
+        review["commits"].append(dict(item))
+    else:
+        item.pop(
+            {
+                "missing-decision": "decision",
+                "missing-rationale": "rationale",
+                "missing-source": "source_ref",
+            }[mutation]
+        )
+    raw = json.dumps(review).encode()
+    options["supplemental_review"].write_bytes(raw)
+    options["accepted_review_sha256"] = hashlib.sha256(raw).hexdigest()
+    reader, calls = _tail_reader(review)
+    _, errors = guard.check_live(manifest, public_read=reader, **options)
+    assert errors
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "unaccepted",
+        "wrong-digest",
+        "wrong-head",
+        "incomplete",
+        "stale",
+        "movement",
+        "unavailable",
+        "missing-file",
+        "actual-candidate",
+    ],
+)
+def test_supplemental_review_fails_closed(tmp_path, problem):
+    _, manifest, review, options = _tail_review(tmp_path)
+    coverage = {"base": COMMIT, "head": MERGE_ONE, "commits": [MERGE_ONE]}
+    if problem == "unaccepted":
+        options["accepted_review_sha256"] = None
+    elif problem == "wrong-digest":
+        options["accepted_review_sha256"] = "0" * 64
+    elif problem == "wrong-head":
+        coverage["head"] = MERGE_TWO
+    elif problem == "incomplete":
+        coverage["commits"] = [MERGE_TWO, MERGE_ONE]
+    elif problem == "missing-file":
+        options["supplemental_review"] = tmp_path / "absent.json"
+    elif problem == "actual-candidate":
+        options["candidate_sha"] = "0" * 40
+    reader, _ = _tail_reader(
+        review, coverage=coverage, final_head=MERGE_TWO if problem == "movement" else None
+    )
+    if problem == "stale":
+
+        def reader(query):
+            return _public_result(MERGE_TWO)
+    elif problem == "unavailable":
+
+        def reader(query):
+            return _public_result(error="offline")
+
+    _, errors = guard.check_live(manifest, public_read=reader, **options)
+    assert errors
+
+
+def test_supplemental_review_rejects_duplicate_json_fields_and_self_declared_pass(tmp_path):
+    import hashlib
+
+    _, manifest, review, options = _tail_review(tmp_path)
+    raw = json.dumps(review).encode()[:-1] + b', "schema_version": 1, "result": "PASS"}'
+    options["supplemental_review"].write_bytes(raw)
+    options["accepted_review_sha256"] = hashlib.sha256(raw).hexdigest()
+    _, errors = guard.check_live(manifest, **options)
+    assert "duplicate JSON field" in errors[0]
+    options["accepted_review_sha256"] = None
+    _, errors = guard.check_live(manifest, **options)
+    assert "required" in errors[0]
+
+
+def test_supplemental_review_rechecks_accepted_bytes_after_public_reads(tmp_path):
+    _, manifest, review, options = _tail_review(tmp_path)
+    normal_reader, _ = _tail_reader(review)
+
+    def reader(query):
+        if query.endpoint == "github_upstream_compare":
+            options["supplemental_review"].write_text('{"result": "PASS"}')
+        return normal_reader(query)
+
+    _, errors = guard.check_live(manifest, public_read=reader, **options)
+    assert "explicitly accepted SHA-256" in errors[0]

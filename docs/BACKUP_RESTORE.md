@@ -764,7 +764,8 @@ Dry runs, status, search and read-only MCP calls do not reconcile retention.
 Selection, keeper qualification and deletion hold the existing installation and
 palace write leases. Before any deletion, two retained recovery points must fully
 restore through the normal validators, including Lance health/count checks and KG
-integrity. Scratch restore uses the backup filesystem; insufficient space defers
+integrity. Each verified scratch restore is removed before the next recovery point
+is restored. Scratch restore uses the backup filesystem; insufficient space defers
 cleanup. Namespace, archive and lease identities are rechecked before deletion.
 A conflicting writer, corrupt keeper, substitution or verification failure preserves
 the dependent archives. Partial cleanup reports only completed deletions and can be

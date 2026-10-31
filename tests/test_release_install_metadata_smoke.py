@@ -1269,29 +1269,83 @@ def test_attempts_path_outside_owned_staging_refuses_without_mutation(tmp_path):
     assert calls == []
 
 
-def test_default_subprocess_pipe_retention_is_bounded_and_reaped(tmp_path):
+@pytest.mark.parametrize("startup_delay", [0, 0.35], ids=["ordinary", "delayed-startup"])
+def test_default_subprocess_pipe_retention_is_bounded_and_reaped(tmp_path, startup_delay):
     identity = tmp_path / "process-group"
+    ready = tmp_path / "pipe-retainer-ready"
     child = tmp_path / "child.py"
     child.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
     parent = tmp_path / "parent.py"
     parent.write_text(
-        "import os, pathlib, subprocess, sys\n"
+        "import json, os, pathlib, subprocess, sys, time\n"
         "pathlib.Path(sys.argv[2]).write_text(str(os.getpid()))\n"
-        "subprocess.Popen([sys.executable, sys.argv[1]])\n",
+        "time.sleep(float(sys.argv[3]))\n"
+        "child = subprocess.Popen([sys.executable, sys.argv[1]])\n"
+        "assert child.poll() is None\n"
+        "ready = pathlib.Path(sys.argv[4])\n"
+        "pending = ready.with_suffix('.tmp')\n"
+        "pending.write_text(json.dumps({'pgid': os.getpgrp(), 'child_pid': child.pid, "
+        "'child_pgid': os.getpgid(child.pid)}))\n"
+        "pending.replace(ready)\n",
         encoding="utf-8",
     )
 
     pgid = None
+
+    def failure_diagnostic(pgid: int):
+        diagnostic = {"pgid": pgid, "fixture_ready": ready.exists(), "detail": detail}
+        try:
+            os.killpg(pgid, 0)
+            diagnostic["kernel_probe"] = "visible"
+        except ProcessLookupError:
+            diagnostic["kernel_probe"] = "gone"
+        except Exception as exc:
+            diagnostic["kernel_probe_error"] = repr(exc)
+        try:
+            result = subprocess.run(
+                ["ps", "-A", "-o", "pid=,ppid=,pgid=,stat="],
+                capture_output=True,
+                text=True,
+                timeout=1,
+                check=False,
+            )
+            diagnostic["ps_returncode"] = result.returncode
+            diagnostic["group_members"] = [
+                line.strip()
+                for line in result.stdout.splitlines()
+                if len(line.split()) == 4 and line.split()[2] == str(pgid)
+            ]
+        except Exception as exc:
+            diagnostic["ps_error"] = repr(exc)
+        return diagnostic
+
     try:
         started = time.monotonic()
         rc, _out, detail = smoke._default_run_subprocess(
-            [sys.executable, str(parent), str(child), str(identity)], timeout_seconds=0.2
+            [
+                sys.executable,
+                str(parent),
+                str(child),
+                str(identity),
+                str(startup_delay),
+                str(ready),
+            ],
+            timeout_seconds=1.2,
         )
+        assert identity.is_file(), f"fixture leader did not publish its PID: rc={rc}, {detail=}"
         pgid = int(identity.read_text(encoding="utf-8"))
 
-        assert rc == 124
-        assert detail == f"{Path(sys.executable).name} timed out after 0.2s"
+        assert rc == 124, (rc, _out, detail)
+        assert detail == f"{Path(sys.executable).name} timed out after 1.2s", failure_diagnostic(
+            pgid
+        )
         assert time.monotonic() - started < 5
+        assert ready.is_file(), (
+            f"fixture did not spawn its pipe-retaining child: rc={rc}, {detail=}"
+        )
+        retained = json.loads(ready.read_text(encoding="utf-8"))
+        assert retained["pgid"] == retained["child_pgid"] == pgid
+        assert retained["child_pid"] != pgid
         with pytest.raises(ProcessLookupError):
             os.killpg(pgid, 0)
     finally:
@@ -1337,6 +1391,31 @@ def test_settle_owned_process_group_waits_for_group_visibility_to_end(monkeypatc
         (4242, smoke.signal.SIGKILL),
         (4242, 0),
     ]
+
+
+@pytest.mark.parametrize("visibility", ["gone", "visible", "error"])
+def test_settle_owned_process_group_rechecks_disappearance_after_revalidation(
+    monkeypatch, visibility
+):
+    class FakeProcess:
+        pid = 4242
+
+        def communicate(self, timeout=None):
+            return "output", "error-output"
+
+    ownership = iter([True, False])
+    observations = iter(["visible", visibility])
+    signals = []
+    monkeypatch.setattr(smoke, "_owned_process_group_matches", lambda *_args: next(ownership))
+    monkeypatch.setattr(
+        smoke, "_owned_process_group_visibility", lambda *_args, **_kwargs: next(observations)
+    )
+    monkeypatch.setattr(smoke.os, "killpg", lambda pgid, sig: signals.append((pgid, sig)))
+
+    result = smoke._settle_owned_process_group(FakeProcess(), pgid=4242, caller_pgid=999)
+
+    assert result == ("output", "error-output", visibility == "gone")
+    assert signals == [(4242, smoke.signal.SIGTERM)]
 
 
 def test_settle_owned_process_group_fails_closed_on_signal_oserror(monkeypatch):
@@ -2459,3 +2538,146 @@ def test_venv_forwards_explicit_extra_to_runtime_probe(tmp_path):
     runtime = [c["args"] for c in calls if smoke._RUNTIME_NO_CHROMADB_PROBE_SCRIPT in c["args"]]
     assert len(runtime) == 1
     assert runtime[0][-2:] == [spec, str(Path.cwd())]
+
+
+@pytest.mark.parametrize("index", ["https://pypi.org/simple", "https://mirror.example/simple/"])
+def test_ci_package_index_explicit_anonymous_transport(monkeypatch, index):
+    monkeypatch.setenv("MEMPALACE_CI_PACKAGE_INDEX_URL", index)
+    monkeypatch.setenv("PIP_INDEX_URL", "https://user:secret@ambient.example/simple")
+    monkeypatch.setenv("PIP_EXTRA_INDEX_URL", "https://extra.example/simple")
+    monkeypatch.setenv("UV_INDEX", "https://other.example/simple")
+    env = smoke._credential_free_env()
+    assert env["PIP_INDEX_URL"] == index
+    assert env["UV_DEFAULT_INDEX"] == index
+    assert env["PIP_CONFIG_FILE"] == os.devnull
+    assert env["PIP_KEYRING_PROVIDER"] == "disabled"
+    assert "PIP_EXTRA_INDEX_URL" not in env
+    assert "UV_INDEX" not in env
+
+
+def test_ci_package_index_unset_excludes_ambient_credentials(monkeypatch):
+    monkeypatch.delenv("MEMPALACE_CI_PACKAGE_INDEX_URL", raising=False)
+    monkeypatch.setenv("PIP_INDEX_URL", "https://user:secret@ambient.example/simple")
+    monkeypatch.setenv("UV_DEFAULT_INDEX", "https://user:secret@ambient.example/simple")
+    env = smoke._credential_free_env()
+    assert "PIP_INDEX_URL" not in env
+    assert "UV_DEFAULT_INDEX" not in env
+    assert smoke.ci_package_index_env({}) == {}
+
+
+@pytest.mark.parametrize(
+    "index",
+    [
+        "http://mirror.example/simple",
+        "https:///simple",
+        "https://user:secret@host/simple",
+        "https://host/simple?token=secret",
+        "https://host/simple#secret",
+        "https://host/simple?",
+        "https://host/simple#",
+        "https://host:bad/simple",
+        "https://host:0/simple",
+        "https://[broken/simple",
+        "https://host/simple\nsecret",
+        "https://host/space secret",
+        "https://host/\x00secret",
+        "https://host/\x7fsecret",
+        "https://host/\x80secret",
+        "https://host\\secret/simple",
+    ],
+)
+def test_ci_package_index_rejects_invalid_input_without_echo(index):
+    with pytest.raises(
+        ValueError, match="^CI package index must be an anonymous HTTPS URL$"
+    ) as error:
+        smoke.ci_package_index_env({"MEMPALACE_CI_PACKAGE_INDEX_URL": index})
+    assert str(error.value) == "CI package index must be an anonymous HTTPS URL"
+
+
+@pytest.mark.parametrize("platform,shared", [("darwin", 1), ("win32", 1), ("linux", 0)])
+def test_python_runtime_library_env_omits_unneeded_loader(platform, shared, monkeypatch):
+    monkeypatch.setattr(smoke.sys, "platform", platform)
+    monkeypatch.setattr(smoke, "_PYTHON_BUILD_SHARED", shared)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/hostile/loader")
+    assert smoke.python_runtime_library_env() == {}
+
+
+@pytest.fixture
+def shared_python_runtime(tmp_path, monkeypatch):
+    prefix = tmp_path / "runtime"
+    directory = prefix / "lib"
+    directory.mkdir(parents=True)
+    library = f"libpython{sys.version_info.major}.{sys.version_info.minor}{sys.abiflags}.so"
+    (directory / library).write_bytes(b"shared-runtime-fixture")
+    config = {"Py_ENABLE_SHARED": 1, "LDLIBRARY": library, "MULTIARCH": "test-arch"}
+    monkeypatch.setattr(smoke.sys, "platform", "linux")
+    monkeypatch.setattr(smoke.sys, "base_prefix", str(prefix))
+    monkeypatch.setattr(smoke, "_PYTHON_BUILD_SHARED", 1)
+    monkeypatch.setattr(smoke.sysconfig, "get_config_var", config.get)
+    return prefix, directory, library, config
+
+
+def test_python_runtime_library_env_uses_base_installation_not_venv_or_ambient(
+    shared_python_runtime, tmp_path, monkeypatch
+):
+    prefix, directory, _library, config = shared_python_runtime
+    monkeypatch.setattr(smoke.sys, "prefix", str(tmp_path / "venv"))
+    monkeypatch.setattr(smoke.sys, "executable", str(tmp_path / "venv" / "bin" / "python"))
+    config["LIBDIR"] = "/stale/build/prefix/lib"
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/hostile/loader:/other/loader")
+    monkeypatch.setenv("OPENAI_API_KEY", "credential-sentinel")
+    assert smoke.python_runtime_library_env() == {"LD_LIBRARY_PATH": str(directory)}
+    env = smoke._credential_free_env()
+    assert env["LD_LIBRARY_PATH"] == str(prefix / "lib")
+    assert "OPENAI_API_KEY" not in env
+    assert "credential-sentinel" not in env.values()
+
+
+@pytest.mark.parametrize("soname_only", [False, True])
+def test_python_runtime_library_env_supports_contained_system_multiarch(
+    shared_python_runtime, soname_only
+):
+    _prefix, directory, library, config = shared_python_runtime
+    multiarch = directory / config["MULTIARCH"]
+    multiarch.mkdir()
+    installed_name = library + ".1.0" if soname_only else library
+    (directory / library).rename(multiarch / installed_name)
+    if soname_only:
+        config["INSTSONAME"] = installed_name
+    assert smoke.python_runtime_library_env() == {"LD_LIBRARY_PATH": str(multiarch)}
+
+
+@pytest.mark.parametrize("fault", ["escape", "missing", "filename", "relative-prefix"])
+def test_python_runtime_library_env_refuses_invalid_installation(
+    shared_python_runtime, tmp_path, monkeypatch, fault
+):
+    _prefix, directory, library, config = shared_python_runtime
+    if fault in {"escape", "missing"}:
+        (directory / library).unlink()
+    if fault == "escape":
+        outside = tmp_path / "outside.so"
+        outside.write_bytes(b"outside-runtime-fixture")
+        (directory / library).symlink_to(outside)
+    elif fault == "filename":
+        config["LDLIBRARY"] = "../../outside.so"
+    elif fault == "relative-prefix":
+        monkeypatch.setattr(smoke.sys, "base_prefix", "relative/runtime")
+    with pytest.raises(ValueError, match="active Python"):
+        smoke.python_runtime_library_env()
+
+
+def test_credential_free_env_runs_ctypes_in_current_python_and_descendant_venv(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/hostile/loader")
+    monkeypatch.setenv("OPENAI_API_KEY", "credential-sentinel")
+    env = smoke._credential_free_env()
+    venv = tmp_path / "venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], env=env, check=True)
+    probe = (
+        "import ctypes, os; "
+        "assert 'OPENAI_API_KEY' not in os.environ; "
+        "assert '/hostile/loader' not in os.environ.get('LD_LIBRARY_PATH', '')"
+    )
+    for python in (Path(sys.executable), venv / "bin" / "python"):
+        subprocess.run([str(python), "-c", probe], env=env, check=True)

@@ -842,14 +842,14 @@ def test_release_gate_ignores_released_palace_lease_files_only(tmp_path):
 
     after = gate._semantic_tree_snapshot(tmp_path)
     assert after != before
-    filtered = gate._without_palace_lease_rows(tmp_path, home, after)
+    filtered = gate._without_palace_lease_rows(tmp_path, home, after, palaces=(palace,))
     assert [row for row in filtered if row[0] != "home/.mempalace"] == list(before)
-    assert gate._palace_leases_released(home)
+    assert gate._palace_leases_released(home, palaces=(palace,))
 
     (home / "keep.txt").write_text("changed", encoding="utf-8")
     assert gate._without_palace_lease_rows(
-        tmp_path, home, gate._semantic_tree_snapshot(tmp_path)
-    ) != gate._without_palace_lease_rows(tmp_path, home, after)
+        tmp_path, home, gate._semantic_tree_snapshot(tmp_path), palaces=(palace,)
+    ) != gate._without_palace_lease_rows(tmp_path, home, after, palaces=(palace,))
 
 
 # ── Backup and restore hold the palace write lease ──────────────────────────

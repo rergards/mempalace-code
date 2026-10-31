@@ -3,8 +3,8 @@
 
 The guard is stdlib-only so it can run in lint CI without importing package
 dependencies. Static mode reads only the checked-out tree and performs no
-network access. Live mode is opt-in, read-only, and performs exactly one
-GitHub API request for the pinned branch head.
+network access. Live mode is opt-in and read-only. A supplemental accepted
+review adds bounded compare pagination and a final branch-head recheck.
 
 The guard never rewrites the manifest, the comparison document, or the README,
 and never performs a GitHub mutation of any kind.
@@ -24,6 +24,7 @@ import hmac
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -882,18 +883,74 @@ def check_live(
     manifest: dict[str, Any],
     *,
     public_read: Callable[[object], object] | None = None,
+    root: Path | None = None,
+    supplemental_review: Path | None = None,
+    accepted_review_sha256: str | None = None,
+    candidate_sha: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compare the pinned commit against the live branch head. Read-only, no mutation."""
     pinned = str(manifest.get("commit", ""))
     branch = str(manifest.get("branch", ""))
     repository = str(manifest.get("canonical_repository", ""))
     recovery = str(manifest.get("recovery_command") or DEFAULT_RECOVERY_COMMAND)
+    supplemental = any(
+        value is not None for value in (supplemental_review, accepted_review_sha256, candidate_sha)
+    )
+    if supplemental:
+        try:
+            review = load_supplemental_review(
+                root, manifest, supplemental_review, accepted_review_sha256, candidate_sha
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return {}, [f"supplemental-review: {exc}"]
     try:
         head = fetch_head_commit(manifest, public_read=public_read)
     except (LiveCheckError, ValueError) as exc:
         return {"live_head": None, "pinned_commit": pinned}, [str(exc)]
 
-    facts = {"live_head": head, "pinned_commit": pinned, "branch": branch}
+    facts: dict[str, Any] = {"live_head": head, "pinned_commit": pinned, "branch": branch}
+    if supplemental:
+        public = _load_public_read()
+        reader = public_read or public.DEFAULT_READER
+        try:
+            if review["observed_head"] != head:
+                raise ValueError("accepted review head is stale; review the additional tail")
+            owner, name = repository_slug(repository)
+            result = reader(
+                public.reviewed_upstream_compare(f"{owner}/{name}", branch, pinned, head)
+            )
+            if getattr(result, "error", ""):
+                raise ValueError(f"primary compare unavailable: {getattr(result, 'error', '')}")
+            coverage = getattr(result, "data", None)
+            reviewed = [item["sha"] for item in review["commits"]]
+            if coverage != {"base": pinned, "head": head, "commits": reviewed}:
+                raise ValueError(
+                    "review inventory does not match complete primary compare coverage"
+                )
+            if fetch_head_commit(manifest, public_read=reader) != head:
+                raise ValueError(
+                    "upstream moved during review validation; review the additional tail"
+                )
+            # Recheck candidate identity and accepted bytes after the network reads.
+            load_supplemental_review(
+                root, manifest, supplemental_review, accepted_review_sha256, candidate_sha
+            )
+        except (
+            LiveCheckError,
+            OSError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+            subprocess.SubprocessError,
+        ) as exc:
+            return facts, [f"supplemental-review: {exc}"]
+        facts.update(
+            supplemental_review_sha256=accepted_review_sha256,
+            candidate_sha=candidate_sha,
+            supplemental_commits=len(reviewed),
+            review_authority="caller accepted exact review SHA-256",
+        )
+        return facts, []
     if head != pinned:
         return facts, [
             f"upstream-drift: {repository} branch {branch} now heads at {head}, "
@@ -904,11 +961,116 @@ def check_live(
     return facts, []
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field {key!r}")
+        result[key] = value
+    return result
+
+
+def load_supplemental_review(
+    root: Path | None,
+    manifest: dict[str, Any],
+    path: Path | None,
+    accepted_digest: str | None,
+    candidate_sha: str | None,
+) -> dict[str, Any]:
+    """Validate caller acceptance and immutable bindings; never infer review authority."""
+    if root is None or path is None or accepted_digest is None or candidate_sha is None:
+        raise ValueError("root, review file, accepted SHA-256 and exact candidate SHA are required")
+    if not DIGEST_RE.fullmatch(accepted_digest) or not COMMIT_RE.fullmatch(candidate_sha):
+        raise ValueError("accepted digest or candidate SHA is malformed")
+    actual = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    if actual != candidate_sha:
+        raise ValueError("actual candidate HEAD does not match the accepted candidate SHA")
+    committed_manifest = subprocess.run(
+        ["git", "show", f"HEAD:{MANIFEST_PATH}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if json.loads(committed_manifest) != manifest:
+        raise ValueError("canonical manifest differs from the exact candidate HEAD")
+    resolved = path.resolve()
+    if resolved.is_relative_to(root.resolve()):
+        relative = str(resolved.relative_to(root.resolve()))
+        ignored = subprocess.run(
+            ["git", "check-ignore", "--", relative], cwd=root, capture_output=True, check=False
+        )
+        tracked = subprocess.run(
+            ["git", "ls-files", "--", relative], cwd=root, capture_output=True, check=True
+        )
+        if not relative.startswith(".codex-local/") or ignored.returncode != 0 or tracked.stdout:
+            raise ValueError(
+                "review file must be ignored local evidence outside distribution inputs"
+            )
+    with resolved.open("rb") as stream:
+        raw = stream.read(1_000_001)
+    if len(raw) > 1_000_000:
+        raise ValueError("review file exceeds the size limit")
+    if not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), accepted_digest):
+        raise ValueError("review bytes do not match the explicitly accepted SHA-256")
+    try:
+        review = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_json_object)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("review is not valid UTF-8 JSON") from exc
+    expected = {
+        "schema_version": 1,
+        "candidate_sha": candidate_sha,
+        "canonical_repository": manifest["canonical_repository"],
+        "branch": manifest["branch"],
+        "canonical_base": manifest["commit"],
+        "inventory_anchor_digest": manifest["inventory_anchor"]["digest"],
+    }
+    if (
+        not isinstance(review, dict)
+        or type(review.get("schema_version")) is not int
+        or any(review.get(key) != value for key, value in expected.items())
+    ):
+        raise ValueError(
+            "review candidate, canonical base, inventory anchor, repository or branch mismatch"
+        )
+    public = _load_public_read()
+    owner, name = repository_slug(review["canonical_repository"])
+    public.reviewed_upstream_head(f"{owner}/{name}", review["branch"])
+    head = review.get("observed_head")
+    if not isinstance(head, str) or not COMMIT_RE.fullmatch(head) or head == manifest["commit"]:
+        raise ValueError("review must name a distinct full upstream observed head SHA")
+    commits = review.get("commits")
+    if not isinstance(commits, list) or not 0 < len(commits) <= 1000:
+        raise ValueError("review must contain the complete bounded intervening commit inventory")
+    seen: set[str] = set()
+    for item in commits:
+        if not isinstance(item, dict):
+            raise ValueError("malformed commit review")
+        sha = item.get("sha")
+        if not isinstance(sha, str) or not COMMIT_RE.fullmatch(sha) or sha in seen:
+            raise ValueError("malformed or duplicate reviewed commit")
+        seen.add(sha)
+        if (
+            item.get("release_critical") is not False
+            or not isinstance(item.get("decision"), str)
+            or item.get("decision") not in {"irrelevant", "deferred"}
+            or not isinstance(item.get("rationale"), str)
+            or not item["rationale"].strip()
+            or item.get("source_ref") != f"{review['canonical_repository']}/commit/{sha}"
+        ):
+            raise ValueError(
+                "critical, UNKNOWN or unsupported review decision; refresh the canonical snapshot"
+            )
+    return review
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Verify the reviewed upstream comparison snapshot. Static checks are "
-            "network-free; --check-live adds one read-only GitHub API request."
+            "network-free; --check-live adds bounded read-only GitHub API requests."
         )
     )
     parser.add_argument(
@@ -927,7 +1089,17 @@ def main(argv: list[str] | None = None) -> int:
         dest="check_live",
         help="Additionally query the upstream branch head read-only and compare it to the pin.",
     )
+    parser.add_argument("--supplemental-review", type=Path)
+    parser.add_argument("--accepted-review-sha256")
+    parser.add_argument("--candidate-sha")
     args = parser.parse_args(argv)
+    if any((args.supplemental_review, args.accepted_review_sha256, args.candidate_sha)) and not (
+        args.check_live
+        and args.supplemental_review
+        and args.accepted_review_sha256
+        and args.candidate_sha
+    ):
+        parser.error("supplemental review requires --check-live and all three review binding flags")
 
     root = args.root.resolve()
     facts, errors = evaluate(root, max_age_days=args.max_age_days)
@@ -939,7 +1111,13 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             errors.append(str(exc))
         else:
-            live_facts, live_errors = check_live(manifest)
+            live_facts, live_errors = check_live(
+                manifest,
+                root=root,
+                supplemental_review=args.supplemental_review,
+                accepted_review_sha256=args.accepted_review_sha256,
+                candidate_sha=args.candidate_sha,
+            )
             errors.extend(live_errors)
     elif args.check_live:
         errors.append(

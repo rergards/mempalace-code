@@ -24,4 +24,13 @@ updates:
     cooldown:
       default-days: 7
     allow:
-      - dependency-type: direct
+      - dependency-type: all
+    groups:
+      gitleaks-version-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      gitleaks-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"

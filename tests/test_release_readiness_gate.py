@@ -1977,6 +1977,7 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
     def seed_runner(command, **_kwargs):
         if "import" in command:
             fixture = Path(command[command.index("--palace") + 1])
+            assert not fixture.parent.exists()
             fixture.mkdir(parents=True)
             (fixture / "seed.txt").write_text("unchanged synthetic fixture")
             return SimpleNamespace(
@@ -5493,20 +5494,29 @@ def test_main_requires_check_or_artifact_only(capsys):
     assert exc_info.value.code != 0
 
 
-def test_main_json_all_green(tmp_path, capsys):
-    with (
-        patch.object(rrg, "_run_inventory_check", return_value=_mock_inventory_ok()),
-        patch.object(rrg, "_build_artifacts", return_value=_mock_build_ok()),
-        patch.object(rrg, "_run_artifact_inspection", return_value=_mock_artifact_rows_ok()),
-        patch.object(rrg, "Path", side_effect=lambda *a, **kw: tmp_path),
-    ):
-        rrg.main(["--check", "--candidate-sha", SHA, "--json"])
+def test_main_json_all_green(capsys):
+    expected = {
+        "ok": True,
+        "completion": "complete",
+        "rows": _mock_inventory_ok(),
+    }
+    with patch.object(rrg, "run_readiness", return_value=expected) as run_readiness:
+        assert rrg.main(["--check", "--candidate-sha", SHA, "--json"]) == 0
 
-    out = capsys.readouterr().out
-    if out.strip():
-        data = json.loads(out)
-        assert "ok" in data
-        assert "rows" in data
+    assert json.loads(capsys.readouterr().out) == expected
+    run_readiness.assert_called_once_with(
+        Path(__file__).resolve().parent.parent,
+        artifact_only=False,
+        public_admission=False,
+        version="",
+        repo=rrg.DEFAULT_REPO,
+        remote=rrg.DEFAULT_REMOTE,
+        branch=rrg.DEFAULT_BRANCH,
+        package=rrg.PACKAGE_NAME,
+        candidate_sha=SHA,
+        required_check_name=None,
+        audit_max_age_hours=None,
+    )
 
 
 def test_main_github_installed_golden_failure_emits_one_safe_bounded_annotation(
@@ -6230,3 +6240,176 @@ def test_installed_base_handoff_refuses_cleanup_and_extra_install_before_valid_p
     assert [
         command[-1] for command, _kwargs in calls if command[1:4] == ["-m", "pip", "install"]
     ] == [f"{wheel}[watch]"]
+
+
+@pytest.mark.parametrize("index", [None, "https://mirror.example/simple/"])
+def test_credential_free_build_env_explicit_ci_index(tmp_path, index):
+    source = {
+        "PIP_INDEX_URL": "https://user:secret@ambient.example/simple",
+        "UV_DEFAULT_INDEX": "https://user:secret@ambient.example/simple",
+        "PIP_EXTRA_INDEX_URL": "https://extra.example/simple",
+    }
+    if index is not None:
+        source["MEMPALACE_CI_PACKAGE_INDEX_URL"] = index
+    env = rrg._credential_free_build_env(tmp_path / "home", tmp_path / "temp", source)
+    assert env.get("PIP_INDEX_URL") == index
+    assert env.get("UV_DEFAULT_INDEX") == index
+    assert "PIP_EXTRA_INDEX_URL" not in env
+    assert env["PIP_CONFIG_FILE"] == os.devnull
+    assert env["PIP_KEYRING_PROVIDER"] == "disabled"
+
+
+def test_credential_free_build_env_rejects_credentialed_ci_index(tmp_path):
+    with pytest.raises(ValueError, match="^CI package index must be an anonymous HTTPS URL$"):
+        rrg._credential_free_build_env(
+            tmp_path / "home",
+            tmp_path / "temp",
+            {
+                "MEMPALACE_CI_PACKAGE_INDEX_URL": "https://user:secret@host/simple",
+            },
+        )
+
+
+@pytest.mark.parametrize("environment", ["build", "installed-golden"])
+def test_sanitized_env_uses_shared_runtime_owner_without_ambient_loader(
+    tmp_path, monkeypatch, environment
+):
+    original_load = rrg._load_sibling
+    calls = []
+
+    def load(name, script_name):
+        owner = original_load(name, script_name)
+        if script_name == "release_install_metadata_smoke.py":
+            calls.append(script_name)
+            monkeypatch.setattr(
+                owner,
+                "python_runtime_library_env",
+                lambda: {"LD_LIBRARY_PATH": "/trusted/runtime/lib"},
+            )
+        return owner
+
+    monkeypatch.setattr(rrg, "_load_sibling", load)
+    source = {"LD_LIBRARY_PATH": "/hostile/loader", "OPENAI_API_KEY": "credential-sentinel"}
+    if environment == "build":
+        env = rrg._credential_free_build_env(tmp_path / "home", tmp_path / "temp", source)
+    else:
+        env = rrg._installed_golden_env(
+            source,
+            temp_root=tmp_path,
+            hf_home=tmp_path / "hf",
+            console=tmp_path / "venv" / "bin" / "mempalace-code",
+            marker=tmp_path / "guard",
+            attempts=tmp_path / "attempts",
+        )
+    assert calls == ["release_install_metadata_smoke.py"]
+    assert env["LD_LIBRARY_PATH"] == "/trusted/runtime/lib"
+    assert "OPENAI_API_KEY" not in env
+    assert "credential-sentinel" not in env.values()
+
+
+@pytest.mark.parametrize("shape", ["safe", "nonzero", "symlink", "hardlink", "active"])
+def test_writer_anchor_gate_requires_exact_safe_released_inode(tmp_path, shape):
+    import fcntl
+
+    from mempalace_code.operation_lock import palace_writer_lock_path
+
+    palace = tmp_path / "palace"
+    home = tmp_path / "home"
+    home.mkdir()
+    anchor = palace_writer_lock_path(palace)
+    assert anchor == rrg._palace_writer_anchor(palace)
+    victim = tmp_path / "valuable"
+    victim.write_bytes(b"operator content")
+    if shape == "symlink":
+        anchor.symlink_to(victim)
+    else:
+        anchor.write_bytes(b"unexpected content" if shape == "nonzero" else b"")
+        if shape == "hardlink":
+            os.link(anchor, tmp_path / "other-name")
+    fd = None
+    try:
+        if shape == "active":
+            fd = os.open(anchor, os.O_RDONLY)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        rows = rrg._semantic_tree_snapshot(tmp_path)
+        filtered = rrg._without_palace_lease_rows(tmp_path, home, rows, palaces=(palace,))
+        visible = any(row[0] == anchor.name for row in filtered)
+        assert visible is (shape != "safe")
+        assert rrg._palace_leases_released(home, palaces=(palace,)) is (shape == "safe")
+        assert victim.read_bytes() == b"operator content"
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def test_writer_anchor_gate_retains_unknown_suffix_files_and_unlisted_palaces(tmp_path):
+    from mempalace_code.operation_lock import palace_writer_lock_path
+
+    palace = tmp_path / "palace"
+    other = tmp_path / "unlisted"
+    home = tmp_path / "home"
+    home.mkdir()
+    known = palace_writer_lock_path(palace)
+    known.touch()
+    unlisted = palace_writer_lock_path(other)
+    unlisted.touch()
+    forged = tmp_path / ".forged.mempalace-writer.lock"
+    forged.write_bytes(b"")
+    rows = rrg._semantic_tree_snapshot(tmp_path)
+    filtered = rrg._without_palace_lease_rows(tmp_path, home, rows, palaces=(palace,))
+    assert {row[0] for row in rows} - {row[0] for row in filtered} == {known.name}
+    assert any(row[0] == unlisted.name for row in filtered)
+    assert any(row[0] == forged.name for row in filtered)
+
+
+def test_writer_anchor_gate_refuses_inode_swap_during_independent_probe(tmp_path, monkeypatch):
+    from mempalace_code.operation_lock import palace_writer_lock_path
+
+    palace = tmp_path / "palace"
+    home = tmp_path / "home"
+    home.mkdir()
+    anchor = palace_writer_lock_path(palace)
+    anchor.touch()
+    real_open = os.open
+    swapped = []
+
+    def swap(path, *args, **kwargs):
+        fd = real_open(path, *args, **kwargs)
+        if path == anchor and not swapped:
+            swapped.append(True)
+            anchor.rename(tmp_path / "parked")
+            anchor.touch()
+        return fd
+
+    monkeypatch.setattr(rrg.os, "open", swap)
+    assert rrg._palace_leases_released(home, palaces=(palace,)) is False
+
+
+def test_writer_anchor_gate_checks_cross_home_process_release(tmp_path):
+    palace = tmp_path / "palace"
+    observer_home = tmp_path / "observer-home"
+    observer_home.mkdir()
+    env = dict(os.environ, HOME=str(tmp_path / "writer-home"), PYTHONPATH=str(ROOT))
+    script = """
+import sys
+from mempalace_code.operation_lock import palace_write_lease
+with palace_write_lease(sys.argv[1], "other-home-holder", wait=0):
+    print("ready", flush=True)
+    sys.stdin.readline()
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", script, str(palace)],
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as child:
+        try:
+            assert child.stdout is not None
+            assert child.stdout.readline().strip() == "ready"
+            assert rrg._palace_leases_released(observer_home, palaces=(palace,)) is False
+        finally:
+            _, stderr = child.communicate("release\n", timeout=15)
+        assert child.returncode == 0, stderr
+    assert rrg._palace_leases_released(observer_home, palaces=(palace,)) is True

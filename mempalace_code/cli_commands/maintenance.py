@@ -9,8 +9,10 @@ import shutil
 import sys
 import tempfile
 from datetime import UTC, datetime
+from typing import NoReturn
 
 from ..config import MempalaceConfig
+from ..operation_lock import OperationLockedError, palace_write_lease
 from .common import (
     acquire_operation_lease,
     fail,
@@ -359,6 +361,40 @@ def _format_row_change(result: dict, *, applied: bool) -> str:
     )
 
 
+def _fail_pre_repair_copy(palace_path: str, retry: list[str], exc: OSError) -> NoReturn:
+    parent = os.path.dirname(os.path.abspath(palace_path))
+    fail(
+        f"repair cannot create its pre-repair copy next to the palace: {exc}. "
+        "The palace was not changed.",
+        next_step=f"make {parent} writable (and free space there), then run "
+        f"{palace_command(palace_path, *retry)}",
+    )
+
+
+@contextlib.contextmanager
+def _repair_write_lease(palace_path: str, operation: str, retry: list[str]):
+    """Keep repair on the same cross-HOME writer contour as ordinary writes."""
+    try:
+        with palace_write_lease(palace_path, operation, wait=0):
+            yield
+    except OperationLockedError as exc:
+        cause = exc.__cause__
+        while isinstance(cause, OperationLockedError):
+            cause = cause.__cause__
+        parent = os.path.dirname(os.path.abspath(palace_path))
+        if (
+            operation == "repair"
+            and isinstance(cause, PermissionError)
+            and not os.access(parent, os.W_OK)
+        ):
+            _fail_pre_repair_copy(palace_path, retry, cause)
+        fail(
+            f"{operation} refused: {exc}",
+            next_step=f"after it finishes, run: {palace_command(palace_path, *retry)}",
+            code="operation_locked",
+        )
+
+
 def _cmd_rollback(args, palace_path: str, dry_run: bool) -> None:
     lease = (
         contextlib.nullcontext()
@@ -367,7 +403,14 @@ def _cmd_rollback(args, palace_path: str, dry_run: bool) -> None:
             "exclusive", "repair --rollback", palace_path, ["repair", "--rollback"]
         )
     )
-    with lease:
+    with (
+        lease,
+        (
+            contextlib.nullcontext()
+            if dry_run
+            else _repair_write_lease(palace_path, "repair --rollback", ["repair", "--rollback"])
+        ),
+    ):
         store = _open_lance_palace(palace_path, read_only=dry_run)
         header_lines = [
             f"\n{_SEPARATOR}",
@@ -554,7 +597,10 @@ def _cmd_full_rebuild(args, palace_path: str) -> None:
 
     salvage = bool(getattr(args, "salvage", False))
     retry = ["repair", "--salvage"] if salvage else ["repair"]
-    with acquire_operation_lease("exclusive", "repair", palace_path, retry):
+    with (
+        acquire_operation_lease("exclusive", "repair", palace_path, retry),
+        _repair_write_lease(palace_path, "repair", retry),
+    ):
         store = _open_lance_palace(palace_path, read_only=False)
 
         print(f"\n{_SEPARATOR}")
@@ -651,16 +697,10 @@ def _cmd_full_rebuild(args, palace_path: str) -> None:
             )
             if lance_commit_state(palace_path) != commit_state:
                 fail(changed_message, next_step=changed_next)
-            parent = os.path.dirname(os.path.abspath(palace_path))
             try:
                 backup_path = _unique_backup_dir(palace_path)
             except OSError as exc:
-                fail(
-                    f"repair cannot create its pre-repair copy next to the palace: {exc}. "
-                    "The palace was not changed.",
-                    next_step=f"make {parent} writable (and free space there), then run "
-                    f"{palace_command(palace_path, *retry)}",
-                )
+                _fail_pre_repair_copy(palace_path, retry, exc)
             print(f"  Saving the pre-repair palace to {backup_path}...")
             try:
                 _save_and_swap(palace_path, staging, backup_path, commit_state)

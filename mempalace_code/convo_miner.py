@@ -560,7 +560,7 @@ def _drawer_id(wing: str, room: str, source_file: str, chunk_index: int, extract
     return f"drawer_{wing}_{room}_{digest}"
 
 
-@holds_palace_write_lease("mine-convos", on_acquire=prune_settled_versions)
+@holds_palace_write_lease("mine-convos", on_acquire=prune_settled_versions, prepare_parent=True)
 def mine_convos(
     convo_dir: str,
     palace_path: str,

@@ -533,6 +533,8 @@ def evaluate(
     tag: str | None,
     require_clean: bool,
     check_live_upstream: bool = False,
+    supplemental_review: Path | None = None,
+    accepted_review_sha256: str | None = None,
     with_gitleaks_history: bool = False,
     expect_sha: str | None = None,
     candidate_ref: str | None = None,
@@ -617,11 +619,29 @@ def evaluate(
         commands.append(
             ("gitleaks_history", [sys.executable, "scripts/gitleaks_scan.py", "full-history"])
         )
+    if (supplemental_review is not None or accepted_review_sha256 is not None) and not (
+        check_live_upstream and supplemental_review and accepted_review_sha256 and expect_sha
+    ):
+        raise ValueError(
+            "supplemental review requires live upstream check, accepted digest and expect SHA"
+        )
     if check_live_upstream:
+        live_command = [sys.executable, "scripts/upstream_comparison_guard.py", "--check-live"]
+        if supplemental_review is not None:
+            live_command.extend(
+                [
+                    "--supplemental-review",
+                    str(supplemental_review.resolve()),
+                    "--accepted-review-sha256",
+                    str(accepted_review_sha256),
+                    "--candidate-sha",
+                    str(expect_sha),
+                ]
+            )
         commands.append(
             (
                 "live_upstream_comparison",
-                [sys.executable, "scripts/upstream_comparison_guard.py", "--check-live"],
+                live_command,
             )
         )
     for name, command in commands:
@@ -781,6 +801,8 @@ def main(argv: list[str] | None = None) -> int:
             "checkout and the Gitleaks CLI on PATH."
         ),
     )
+    parser.add_argument("--supplemental-review", type=Path)
+    parser.add_argument("--accepted-review-sha256")
     parser.add_argument(
         "--expect-sha",
         help="Operator-reviewed 40-hex release candidate SHA that every candidate ref must match.",
@@ -857,6 +879,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.audit_branch is not None and not args.check_dependency_audit:
         parser.error("--audit-branch requires --check-dependency-audit")
+    review_options = {}
+    if args.supplemental_review is not None or args.accepted_review_sha256 is not None:
+        if not (
+            args.check_live_upstream
+            and args.expect_sha
+            and args.supplemental_review
+            and args.accepted_review_sha256
+        ):
+            parser.error(
+                "supplemental review requires --check-live-upstream, --expect-sha and accepted digest"
+            )
+        review_options = {
+            "supplemental_review": args.supplemental_review,
+            "accepted_review_sha256": args.accepted_review_sha256,
+        }
 
     try:
         version, checks = evaluate(
@@ -878,6 +915,7 @@ def main(argv: list[str] | None = None) -> int:
             required_check_name=args.required_check_name,
             audit_max_age_hours=args.audit_max_age_hours,
             audit_branch=args.audit_branch,
+            **review_options,
         )
     except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
         print(f"release-preflight: ERROR — {exc}", file=sys.stderr)

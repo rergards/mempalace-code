@@ -967,34 +967,91 @@ def _semantic_tree_snapshot(path: Path) -> tuple[tuple[str, str, int, str], ...]
     return tuple(rows)
 
 
-def _without_palace_lease_rows(
-    root: Path, home: Path, rows: tuple[tuple[str, str, int, str], ...]
-) -> tuple[tuple[str, str, int, str], ...]:
-    """Drop per-palace write-lease files (HOME/.mempalace/locks) from a tree snapshot.
+def _palace_writer_anchor(palace: Path) -> Path:
+    canonical = palace.expanduser().resolve()
+    return canonical.with_name(f".{canonical.name}.mempalace-writer.lock")
 
-    Every mine holds a per-palace write lease whose lock file is named after the
-    palace, so a scenario that mines creates one; the lease-release check reads
-    the owner registries instead.
-    """
+
+def _released_palace_writer_anchor(anchor: Path) -> bool:
+    """Prove a known empty anchor is safe and unlocked through an independent fd."""
+    fd = -1
+    try:
+        import fcntl
+
+        before = anchor.lstat()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_uid != os.getuid()
+            or before.st_size != 0
+        ):
+            return False
+        fd = os.open(anchor, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        held = os.fstat(fd)
+        if (held.st_dev, held.st_ino) != (before.st_dev, before.st_ino):
+            return False
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        named = anchor.lstat()
+        held = os.fstat(fd)
+        return (
+            stat.S_ISREG(named.st_mode)
+            and stat.S_ISREG(held.st_mode)
+            and named.st_nlink == held.st_nlink == 1
+            and named.st_uid == held.st_uid == os.getuid()
+            and named.st_size == held.st_size == 0
+            and (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino)
+        )
+    except (AttributeError, ImportError, OSError):
+        return False
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
+def _without_palace_lease_rows(
+    root: Path,
+    home: Path,
+    rows: tuple[tuple[str, str, int, str], ...],
+    *,
+    palaces: tuple[Path, ...] = (),
+) -> tuple[tuple[str, str, int, str], ...]:
+    """Drop legacy HOME lease rows and only proven released, explicitly known anchors."""
     try:
         prefix = (home / ".mempalace" / "locks").relative_to(root).as_posix()
     except ValueError:
-        return rows
-    return tuple(row for row in rows if row[0] != prefix and not row[0].startswith(prefix + "/"))
-
-
-def _palace_leases_released(home: Path) -> bool:
-    """Return True when every per-palace write-lease owner registry is empty."""
-    locks = home / ".mempalace" / "locks"
-    if not locks.is_dir():
-        return True
-    for owners in locks.glob("*.owners.json"):
+        prefix = None
+    anchors: set[str] = set()
+    for palace in palaces:
+        anchor = _palace_writer_anchor(palace)
         try:
-            if json.loads(owners.read_text(encoding="utf-8")) != {}:
+            relative = anchor.relative_to(root.resolve()).as_posix()
+        except ValueError:
+            continue
+        if _released_palace_writer_anchor(anchor):
+            anchors.add(relative)
+    empty_digest = hashlib.sha256(b"").hexdigest()
+    return tuple(
+        row
+        for row in rows
+        if not (prefix is not None and (row[0] == prefix or row[0].startswith(prefix + "/")))
+        and not (row[0] in anchors and row[1:] == ("file", 0, empty_digest))
+    )
+
+
+def _palace_leases_released(home: Path, *, palaces: tuple[Path, ...] = ()) -> bool:
+    """Require empty HOME owner registries and independent release of known anchors."""
+    locks = home / ".mempalace" / "locks"
+    if locks.is_dir():
+        for owners in locks.glob("*.owners.json"):
+            try:
+                if json.loads(owners.read_text(encoding="utf-8")) != {}:
+                    return False
+            except (OSError, ValueError):
                 return False
-        except (OSError, ValueError):
-            return False
-    return True
+    return all(
+        not os.path.lexists(anchor) or _released_palace_writer_anchor(anchor)
+        for anchor in (_palace_writer_anchor(palace) for palace in palaces)
+    )
 
 
 def _installed_disposable_roots(
@@ -1191,7 +1248,12 @@ def _run_installed_recovery_safety_scenario(
         lease_home = Path(env["HOME"])
 
         def boundary_snapshot(root: Path) -> tuple[tuple[str, str, int, str], ...]:
-            return _without_palace_lease_rows(root, lease_home, _semantic_tree_snapshot(root))
+            return _without_palace_lease_rows(
+                root,
+                lease_home,
+                _semantic_tree_snapshot(root),
+                palaces=(source_palace, restore_target),
+            )
 
         post_setup = {root: boundary_snapshot(root) for root in disposable_roots}
         restore = run(["--palace", str(restore_target), "restore", str(backup_archive)])
@@ -1211,7 +1273,7 @@ def _run_installed_recovery_safety_scenario(
             raise RuntimeError("restore collision changed the backup archive")
         if any(boundary_snapshot(root) != snapshot for root, snapshot in post_setup.items()):
             raise RuntimeError("restore collision changed the disposable root boundary")
-        if not _palace_leases_released(lease_home):
+        if not _palace_leases_released(lease_home, palaces=(source_palace, restore_target)):
             raise RuntimeError("restore collision left a palace write lease held")
 
         version = run(["--version"])
@@ -1607,7 +1669,7 @@ def _run_installed_wing_migration_scenario(
             raise RuntimeError("wing migration synthetic qualification did not prove its contract")
         if _semantic_tree_snapshot(temporary) != temporary_before:
             raise RuntimeError("wing migration qualification retained a synthetic fixture")
-        if not _palace_leases_released(fixture / "home"):
+        if not _palace_leases_released(fixture / "home", palaces=(fixture / "palace",)):
             raise RuntimeError("wing migration left a palace write lease held")
         if json.loads((fixture / "home/.mempalace/operation.lock.owners.json").read_text()) != {}:
             raise RuntimeError("wing migration left an operation lease held")
@@ -1689,7 +1751,9 @@ def _run_installed_cli_inventory_gap_scenario(
         lease_home = Path(env["HOME"])
 
         def boundary_snapshot(root: Path) -> tuple[tuple[str, str, int, str], ...]:
-            return _without_palace_lease_rows(root, lease_home, _semantic_tree_snapshot(root))
+            return _without_palace_lease_rows(
+                root, lease_home, _semantic_tree_snapshot(root), palaces=(palace,)
+            )
 
         protected_before = {root: boundary_snapshot(root) for root in protected_roots}
         attempts_before = network_attempts.read_bytes() if network_attempts.exists() else b""
@@ -1874,7 +1938,7 @@ def _run_installed_cli_inventory_gap_scenario(
             raise RuntimeError("inventory scenario changed the established project")
         if any(boundary_snapshot(root) != snapshot for root, snapshot in protected_before.items()):
             raise RuntimeError("inventory scenario changed a protected disposable root")
-        if not _palace_leases_released(lease_home):
+        if not _palace_leases_released(lease_home, palaces=(palace,)):
             raise RuntimeError("inventory scenario left a palace write lease held")
         attempts_final = network_attempts.read_bytes() if network_attempts.exists() else b""
         if attempts_final != attempts_before:
@@ -2541,6 +2605,8 @@ def _installed_golden_env(
             "PIP_KEYRING_PROVIDER": "disabled",
         }
     )
+    smoke = _load_sibling("_release_install_metadata_runtime", "release_install_metadata_smoke.py")
+    env.update(smoke.python_runtime_library_env())
     return env
 
 
@@ -5439,7 +5505,7 @@ def _run_installed_non_regular_source_scenario(
             raise RuntimeError("scenario attempted network access")
         cleanup_owned_sockets()
         cleanup_socket_alias()
-        if not _palace_leases_released(Path(env["HOME"])):
+        if not _palace_leases_released(Path(env["HOME"]), palaces=(project_palace, convo_palace)):
             raise RuntimeError("a palace write lease survived the scenario")
         cleanup_new_lease_artifacts()
         for path in (*blocked_project.values(), *blocked_convos.values()):
@@ -6278,8 +6344,12 @@ def _run_installed_mcp_stdio_scenario(
             "XDG cache": Path(scenario_env["XDG_CACHE_HOME"]),
         }
 
+        writer_palaces = (palace, *(palace_root / name for name, _ in profiles))
+
         def protected_snapshot(path: Path) -> tuple[tuple[str, str, int, str], ...]:
-            return _without_palace_lease_rows(path, scenario_home, _semantic_tree_snapshot(path))
+            return _without_palace_lease_rows(
+                path, scenario_home, _semantic_tree_snapshot(path), palaces=writer_palaces
+            )
 
         protected = {
             label: (path, protected_snapshot(path)) for label, path in protected_paths.items()
@@ -6294,7 +6364,10 @@ def _run_installed_mcp_stdio_scenario(
             return tuple(
                 row
                 for row in _without_palace_lease_rows(
-                    scenario_root, scenario_home, _semantic_tree_snapshot(scenario_root)
+                    scenario_root,
+                    scenario_home,
+                    _semantic_tree_snapshot(scenario_root),
+                    palaces=writer_palaces,
                 )
                 if not any(
                     row[0] == prefix or row[0].startswith(prefix + "/")
@@ -6613,7 +6686,7 @@ def _run_installed_mcp_stdio_scenario(
         attempts_after = network_attempts.read_bytes() if network_attempts.exists() else b""
         if attempts_after != attempts_before:
             raise RuntimeError("installed MCP scenario attempted network access")
-        if not _palace_leases_released(scenario_home):
+        if not _palace_leases_released(scenario_home, palaces=writer_palaces):
             raise RuntimeError("installed MCP scenario left a palace write lease held")
         changed_protected: list[str] = []
         for label, (path, before) in protected.items():
@@ -7950,6 +8023,10 @@ def _credential_free_build_env(
     for name in ("LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT", "WINDIR"):
         if source.get(name):
             env[name] = source[name]
+    smoke = _load_sibling("_release_install_metadata_runtime", "release_install_metadata_smoke.py")
+    env.update(smoke.python_runtime_library_env())
+    if source.get("MEMPALACE_CI_PACKAGE_INDEX_URL"):
+        env.update(smoke.ci_package_index_env(source))
     return env
 
 

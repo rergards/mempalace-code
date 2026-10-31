@@ -18,6 +18,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scripts.release_install_metadata_smoke import python_runtime_library_env
+
 ROOT = Path(__file__).parent.parent
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "publish.yml"
@@ -129,7 +131,10 @@ def test_dotnet_benchmark_is_pinned_and_release_blocking():
     assert str(job["env"]["R5_THRESHOLD"]) == "0.900"
     commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
     assert "mempalace-code fetch-model" in commands
-    assert "git -C /tmp/CleanArchitecture checkout --detach FETCH_HEAD" in commands
+    assert 'repo_dir="$(mktemp -d "$RUNNER_TEMP/CleanArchitecture.XXXXXX")"' in commands
+    assert 'echo "CLEAN_ARCHITECTURE_REPO=$repo_dir" >> "$GITHUB_ENV"' in commands
+    assert 'git -C "$repo_dir" checkout --detach FETCH_HEAD' in commands
+    assert commands.count('--repo-dir "$CLEAN_ARCHITECTURE_REPO"') == 2
     assert "--validate-queries" in commands
     assert "--fail-under-r5 ${{ env.R5_THRESHOLD }}" in commands
     upload = next(step for step in job["steps"] if step.get("name") == "Upload benchmark report")
@@ -195,8 +200,16 @@ def test_installed_application_self_seeds_required_minilm_cache_on_miss():
     assert "benchmarks/minilm_runtime_compatibility_fixture.json" in cache["with"]["key"]
     assert job["runs-on"] == "${{ matrix.runner }}"
     assert job["strategy"]["matrix"]["include"] == [
-        {"runner": "ubuntu-latest", "python": "3.11", "arch": "x64"},
-        {"runner": "ubuntu-24.04-arm", "python": "3.12", "arch": "arm64"},
+        {
+            "runner": "${{ vars.CI_LINUX_X64_RUNNER || 'ubuntu-latest' }}",
+            "python": "3.11",
+            "arch": "x64",
+        },
+        {
+            "runner": "${{ vars.CI_LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}",
+            "python": "3.12",
+            "arch": "arm64",
+        },
     ]
 
     bootstrap = next(step for step in steps if "fetch-model" in str(step.get("run", "")))
@@ -211,6 +224,8 @@ def test_installed_application_self_seeds_required_minilm_cache_on_miss():
         'HF_HOME="$HF_HOME"',
         "HF_HUB_DISABLE_IMPLICIT_TOKEN=1",
         'PATH="$PATH"',
+        'MEMPALACE_CI_PACKAGE_INDEX_URL="$MEMPALACE_CI_PACKAGE_INDEX_URL"',
+        'PIP_INDEX_URL="$PIP_INDEX_URL"',
         "PIP_CONFIG_FILE=/dev/null",
         "PIP_KEYRING_PROVIDER=disabled",
         "PYTHONNOUSERSITE=1",
@@ -222,7 +237,6 @@ def test_installed_application_self_seeds_required_minilm_cache_on_miss():
     for forbidden in (
         "HF_TOKEN",
         "HUGGING_FACE_HUB_TOKEN",
-        "PIP_INDEX_URL",
         "PIP_EXTRA_INDEX_URL",
         "GITHUB_TOKEN",
     ):
@@ -237,9 +251,7 @@ def test_installed_application_self_seeds_required_minilm_cache_on_miss():
     )
     bootstrap_index = steps.index(bootstrap)
     manager_index = next(
-        index
-        for index, step in enumerate(steps)
-        if "release_install_metadata_smoke.py" in step.get("run", "")
+        index for index, step in enumerate(steps) if "--all-installers" in step.get("run", "")
     )
     golden_index = next(
         index
@@ -282,7 +294,7 @@ def test_installed_application_cache_bootstrap_has_no_credential_or_provider_acc
 def test_installed_application_keeps_manager_matrix_and_full_suite_separate():
     job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
     commands = [str(step.get("run", "")) for step in job["steps"]]
-    manager = [command for command in commands if "release_install_metadata_smoke.py" in command]
+    manager = [command for command in commands if "--all-installers" in command]
     golden = [command for command in commands if "--installed-golden-wheel" in command]
 
     assert len(manager) == 1
@@ -296,7 +308,7 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     workflow = _workflow(CI_WORKFLOW)
     job = workflow["jobs"]["installed-application"]
     commands = [str(step.get("run", "")) for step in job["steps"]]
-    manager = [command for command in commands if "release_install_metadata_smoke.py" in command]
+    manager = [command for command in commands if "--all-installers" in command]
 
     assert len(manager) == 1
     command = manager[0]
@@ -324,7 +336,7 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert 'sudo rm -f -- "$staged_script" "$staged_wheel"' in command
     assert 'sudo rmdir -- "$stage_dir"' in command
     assert "rm -rf" not in command
-    assert "setsid bash -c" in command
+    assert "setsid --wait bash -c" in command
     assert 'exec "$3" "$4" --all-installers --install-spec "$5" --json' in command
     assert 'smoke_identity="$lifecycle_home/.mempalace-release-smoke.identity"' in command
     assert 'smoke_identity_tmp="$smoke_identity.tmp"' in command
@@ -380,6 +392,171 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert all(client not in command for client in ("codex", "claude", "gemini"))
     assert command.count("--all-installers") == 1
     assert workflow["jobs"]["release-required"]["needs"].count("installed-application") == 1
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Requires Linux GNU setsid process groups")
+def test_installed_application_launcher_waits_for_group_leader_child(tmp_path):
+    import json
+    import shlex
+    import subprocess
+    import time
+
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    command = next(
+        step["run"] for step in job["steps"] if "--all-installers" in step.get("run", "")
+    )
+    launch = next(
+        line.strip() for line in command.splitlines() if line.strip().startswith("setsid ")
+    )
+    launch_args = shlex.split(launch.split(" bash -c ", 1)[0])
+    version = subprocess.run(
+        [launch_args[0], "--version"], capture_output=True, text=True, check=True
+    )
+    assert "util-linux" in version.stdout
+    identity = tmp_path / "identity.json"
+    release = tmp_path / "release"
+    completed = tmp_path / "completed"
+    child = """
+import json, os, sys, time
+from pathlib import Path
+identity, release, completed = map(Path, sys.argv[1:])
+time.sleep(0.1)
+temporary = identity.with_suffix(".tmp")
+temporary.write_text(json.dumps({"pid": os.getpid(), "pgid": os.getpgrp()}))
+temporary.replace(identity)
+deadline = time.monotonic() + 5
+while not release.exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+completed.write_text("done")
+sys.exit(7)
+"""
+    # A group-leader caller makes GNU setsid fork before running the child.
+    with subprocess.Popen(
+        [
+            *launch_args,
+            "bash",
+            "-c",
+            'exec "$@"',
+            "bash",
+            sys.executable,
+            "-I",
+            "-c",
+            child,
+            str(identity),
+            str(release),
+            str(completed),
+        ],
+        process_group=0,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as process:
+        try:
+            deadline = time.monotonic() + 5
+            while not identity.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert identity.exists()
+            recorded = json.loads(identity.read_text())
+            assert recorded["pid"] == recorded["pgid"]
+            assert process.poll() is None
+            assert not completed.exists()
+        finally:
+            release.touch()
+            _stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 7, stderr
+        assert completed.read_text() == "done"
+
+
+def test_installed_application_venv_has_traversable_ancestors_and_guarded_always_cleanup():
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    create = next(
+        step["run"]
+        for step in job["steps"]
+        if step.get("name", "").startswith("Create isolated job Python")
+    )
+    cleanup = job["steps"][-1]
+    assert 'venv_dir="$(mktemp -d /var/tmp/mempalace-installed-python.XXXXXX)"' in create
+    assert 'echo "MEMPALACE_INSTALLED_JOB_VENV=$venv_dir" >> "$GITHUB_ENV"' in create
+    assert create.index("MEMPALACE_INSTALLED_JOB_VENV=") < create.index("python -m venv")
+    assert 'chmod 0755 "$venv_dir"' in create
+    assert "$RUNNER_TEMP" not in create
+    assert cleanup["if"] == "always()"
+    command = cleanup["run"]
+    for guard in (
+        "/var/tmp/mempalace-installed-python.??????)",
+        'if getent passwd "$lifecycle_user" >/dev/null; then',
+        'test -d "$venv_dir" && test ! -L "$venv_dir"',
+        'test "$(stat -c %u "$venv_dir")" = "$(id -u)"',
+        'test "$venv_mode" = 700 || test "$venv_mode" = 755',
+    ):
+        assert command.index(guard) < command.index('rm -rf -- "$venv_dir"')
+    assert 'test ! -e "$venv_dir" && test ! -L "$venv_dir"' in command
+    assert "sudo" not in command
+    assert "chmod" not in command
+
+
+@pytest.mark.parametrize(
+    ("venv_path", "prelude", "reason"),
+    [
+        ("/tmp/unrelated", "", "refused unexpected installed-application venv path"),
+        (
+            "/var/tmp/mempalace-installed-python.ABC123",
+            "getent() { return 0; }\n",
+            "refused venv cleanup while lifecycle user remains",
+        ),
+    ],
+)
+def test_installed_application_venv_cleanup_refuses_unsafe_state(venv_path, prelude, reason):
+    import subprocess
+
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    command = job["steps"][-1]["run"]
+    completed = subprocess.run(
+        ["bash", "-c", prelude + command],
+        env={
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_RUN_ID": "1",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "MEMPALACE_INSTALLED_JOB_VENV": venv_path,
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 1
+    assert completed.stderr.strip() == reason
+    assert completed.stdout == ""
+
+
+@pytest.mark.parametrize("exit_code", [0, 37])
+def test_installed_application_exit_diagnostic_preserves_original_status(exit_code):
+    import subprocess
+
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    command = next(
+        step["run"] for step in job["steps"] if "--all-installers" in step.get("run", "")
+    )
+    prefix = command[: command.index("trap cleanup_lifecycle_user EXIT")]
+    completed = subprocess.run(
+        ["bash", "-c", prefix + f"trap cleanup_lifecycle_user EXIT\nexit {exit_code}\n"],
+        env={"PATH": "/usr/bin:/bin", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == exit_code
+    if exit_code:
+        assert f"phase=candidate-wheel exit={exit_code}; recovery:" in completed.stderr
+    else:
+        assert completed.stderr == ""
+    assert completed.stdout == ""
+    assert command.index("lifecycle_rc=$?") < command.index("trap - EXIT")
+    assert "BASH_COMMAND" not in command
+    assert "trap cleanup_lifecycle_user ERR" not in command
+    assert '"$python_bin" -I -c' in command
+    assert command.index("lifecycle_phase=python-execution") < command.index(
+        "lifecycle_phase=launch-smoke"
+    )
 
 
 def test_no_ci_job_escapes_the_release_critical_classification():
@@ -452,6 +629,7 @@ def _run_aggregate_script(needs: dict) -> tuple[int, str]:
             "PATH": "/usr/bin:/bin",
             "NEEDS_JSON": json.dumps(needs),
             "EXPECTED_JOBS": str(step["env"]["EXPECTED_JOBS"]),
+            **python_runtime_library_env(),
         },
     )
     return completed.returncode, completed.stdout + completed.stderr
@@ -1079,3 +1257,67 @@ def test_benchmark_owner_uses_canonical_fastembed_cache():
     assert ".cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1" in text
     assert "hub/models--sentence-transformers--all-MiniLM-L6-v2" not in text
     assert "--check-facts benchmarks/retrieval_quality_facts.json" not in text
+
+
+def test_ci_package_index_is_optional_validated_before_installs():
+    workflow = _workflow(CI_WORKFLOW)
+    assert workflow["env"]["MEMPALACE_CI_PACKAGE_INDEX_URL"] == (
+        "${{ vars.CI_PYTHON_INDEX_URL || 'https://pypi.org/simple' }}"
+    )
+    configured = 0
+    for job in workflow["jobs"].values():
+        steps = job.get("steps", [])
+        for position, step in enumerate(steps):
+            if step.get("name") != "Create isolated job Python environment":
+                continue
+            configured += 1
+            command = step["run"]
+            assert 'runpy.run_path("scripts/release_install_metadata_smoke.py")' in command
+            assert 'owner["ci_package_index_env"]()' in command
+            assert 'os.environ["GITHUB_ENV"]' in command
+            assert not any(
+                "pip install" in previous.get("run", "") for previous in steps[:position]
+            )
+    assert configured == 7
+    lifecycle = next(
+        step["run"]
+        for step in workflow["jobs"]["installed-application"]["steps"]
+        if "MEMPALACE_RELEASE_SYSTEMD_USER=1" in step.get("run", "")
+    )
+    assert 'MEMPALACE_CI_PACKAGE_INDEX_URL="$MEMPALACE_CI_PACKAGE_INDEX_URL"' in lifecycle
+
+
+def test_clean_python_workflow_boundaries_derive_loader_from_current_runtime():
+    workflow = _workflow(CI_WORKFLOW)
+    seed_commands = [
+        step["run"]
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "Seed missing MiniLM cache"
+    ]
+    lifecycle = next(
+        step["run"]
+        for step in workflow["jobs"]["installed-application"]["steps"]
+        if "MEMPALACE_RELEASE_SYSTEMD_USER=1" in step.get("run", "")
+    )
+    assert len(seed_commands) == 2
+    for command in [*seed_commands, lifecycle]:
+        assert "set -euo pipefail" in command
+        assert "runtime_library_dir=\"$(python - <<'PYLIB'" in command
+        assert 'runpy.run_path("scripts/release_install_metadata_smoke.py")' in command
+        assert 'owner["python_runtime_library_env"]().get("LD_LIBRARY_PATH", "")' in command
+        assert 'if [[ -n "$runtime_library_dir" ]]; then' in command
+        assert 'LD_LIBRARY_PATH="$LD_LIBRARY_PATH"' not in command
+        assert "eval " not in command
+        assert command.index("runtime_library_dir=") < command.index(
+            'clean_env+=("LD_LIBRARY_PATH=$runtime_library_dir")'
+            if command in seed_commands
+            else 'runtime_library_env+=("LD_LIBRARY_PATH=$runtime_library_dir")'
+        )
+    for command in seed_commands:
+        assert command.index('clean_env+=("LD_LIBRARY_PATH=$runtime_library_dir")') < command.index(
+            '"${clean_env[@]}"'
+        )
+    launch = lifecycle[lifecycle.index("MEMPALACE_RELEASE_SYSTEMD_USER=1") :]
+    assert launch.splitlines()[1].strip().startswith('"${runtime_library_env[@]}"')
+    assert launch.splitlines()[2].strip().startswith("setsid --wait bash")

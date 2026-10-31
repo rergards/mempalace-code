@@ -30,13 +30,13 @@ JSON_LIMIT: Final = 2_000_000
 ARTIFACT_LIMIT: Final = 128 * 1024 * 1024
 ERROR_LIMIT: Final = 320
 USER_AGENT: Final = "mempalace-code-release-public-read/1"
-MAX_TAG_PEELS: Final = 4
 MINILM_CHECK_NAME: Final = "installed-application (ubuntu-latest, 3.11, x64)"
 MINILM_ANNOTATION_TITLE: Final = "MiniLM runtime compatibility"
 
 _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+_TAG_NAME = re.compile(r"^[^\x00-\x20\x7f~^:?*\[\\]+$")
 _WORKFLOWS = frozenset({"Tests", "Publish to PyPI", "Dependency Audit"})
 _WORKFLOW_FILES = {
     "Tests": "ci.yml",
@@ -220,6 +220,18 @@ def reviewed_upstream_head(repo: str, branch: str) -> _PublicQuery:
     )
 
 
+def reviewed_upstream_compare(repo: str, branch: str, base: str, head: str) -> _PublicQuery:
+    return _PublicQuery(
+        "github_upstream_compare",
+        (
+            _fixed(repo, REVIEWED_UPSTREAM_REPOSITORY, "upstream repository"),
+            _fixed(_branch(branch), REVIEWED_UPSTREAM_BRANCH, "upstream branch"),
+            _sha(base),
+            _sha(head),
+        ),
+    )
+
+
 def pypi_metadata(package: str) -> _PublicQuery:
     return _PublicQuery("pypi_metadata", (_fixed(package, PUBLIC_PACKAGE, "package"),))
 
@@ -279,6 +291,8 @@ class PublicReader:
             return PublicResult(error=_diagnostic(exc))
 
     def _execute(self, query: _PublicQuery) -> object:
+        if query.endpoint == "github_upstream_compare":
+            return self._upstream_compare(query)
         url, limit, accept = self._request_spec(query)
         body = self._get(url, limit=limit, accept=accept)
         if query.endpoint == "pypi_distribution":
@@ -357,43 +371,64 @@ class PublicReader:
                 {**item, "isLatest": item.get("tagName") == latest_tag}
                 for item in normalized_releases
             ]
-        if query.endpoint == "github_matching_tags":
-            normalized_tags = cast("list[dict[str, str]]", normalized)
-            if len(normalized_tags) >= cast("int", query.values[1]):
-                raise PublicReadError("matching-ref response hit the bounded pagination limit")
-            repo = str(query.values[0])
-            return [self._peel_matching_tag(repo, item) for item in normalized_tags]
         return normalized
 
-    def _peel_matching_tag(self, repo: str, item: dict[str, str]) -> dict[str, str]:
-        if item["type"] == "commit":
-            return item
-        sha = item["sha"]
-        seen = {sha}
-        for _ in range(MAX_TAG_PEELS):
-            url = f"{GITHUB_API}/repos/{repo}/git/tags/{sha}"
-            body = self._get(url, limit=JSON_LIMIT, accept="application/vnd.github+json")
+    def _upstream_compare(self, query: _PublicQuery) -> dict[str, object]:
+        repo, branch, base, head = query.values
+        # Revalidate closed query values before constructing any URL.
+        reviewed_upstream_compare(str(repo), str(branch), str(base), str(head))
+        commits: list[str] = []
+        expected_total: int | None = None
+        for page_number in range(1, 11):
+            body = self._get(
+                f"{GITHUB_API}/repos/{repo}/compare/{base}...{head}"
+                f"?per_page=100&page={page_number}",
+                limit=JSON_LIMIT,
+                accept="application/vnd.github+json",
+            )
             try:
-                payload = json.loads(body.decode("utf-8"))
+                data = json.loads(body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise PublicReadError("annotated-tag response was not valid JSON") from exc
-            target = payload.get("object") if isinstance(payload, dict) else None
-            if not isinstance(target, dict):
-                raise PublicReadError("annotated-tag response has no target object")
-            target_sha = target.get("sha")
-            target_type = target.get("type")
+                raise PublicReadError("compare page was not valid UTF-8 JSON") from exc
             if (
-                not isinstance(target_sha, str)
-                or not _SHA.fullmatch(target_sha)
-                or target_type not in {"commit", "tag"}
-                or target_sha in seen
+                not isinstance(data, dict)
+                or data.get("status") != "ahead"
+                or type(data.get("behind_by")) is not int
+                or data.get("behind_by") != 0
+                or type(data.get("total_commits")) is not int
+                or not 0 < data["total_commits"] <= 1000
+                or type(data.get("ahead_by")) is not int
+                or data.get("ahead_by") != data["total_commits"]
+                or not isinstance(data.get("base_commit"), dict)
+                or data["base_commit"].get("sha") != base
+                or not isinstance(data.get("merge_base_commit"), dict)
+                or data["merge_base_commit"].get("sha") != base
+                or not isinstance(data.get("commits"), list)
             ):
-                raise PublicReadError("annotated-tag peel is invalid or cyclic")
-            sha = target_sha.lower()
-            if target_type == "commit":
-                return {"ref": item["ref"], "sha": sha, "type": "commit"}
-            seen.add(sha)
-        raise PublicReadError("annotated-tag peel exceeds the bounded depth")
+                raise PublicReadError("compare does not prove a bounded descendant range")
+            total = data["total_commits"]
+            if expected_total is not None and total != expected_total:
+                raise PublicReadError("compare total changed between pages")
+            expected_total = total
+            page = data["commits"]
+            if len(page) != min(100, total - len(commits)):
+                raise PublicReadError("compare does not prove complete pagination")
+            for item in page:
+                if (
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("sha"), str)
+                    or not _SHA.fullmatch(item["sha"])
+                ):
+                    raise PublicReadError("compare contains a malformed commit")
+                sha = item["sha"].lower()
+                if sha == base or sha in commits:
+                    raise PublicReadError("compare contains duplicate or base commits")
+                commits.append(sha)
+            if len(commits) == total:
+                if commits[-1] != head:
+                    raise PublicReadError("compare inventory does not end at the requested head")
+                return {"base": base, "head": head, "commits": commits}
+        raise PublicReadError("compare exceeded the bounded pagination limit")
 
     def _get(self, url: str, *, limit: int, accept: str) -> bytes:
         request = urllib.request.Request(
@@ -464,7 +499,7 @@ class PublicReader:
             path = f"/repos/{repo}/rulesets/{ruleset_id}"
         elif endpoint == "github_matching_tags":
             repo, limit = values
-            path = f"/repos/{repo}/git/matching-refs/tags/v?per_page={limit}"
+            path = f"/repos/{repo}/tags?per_page={limit}&page=1"
         elif endpoint in {"github_commit", "github_upstream_head"}:
             repo, ref = values
             path = f"/repos/{repo}/commits/{urllib.parse.quote(str(ref), safe='')}"
@@ -573,7 +608,7 @@ class PublicReader:
                 raise PublicReadError("unexpected ruleset response shape")
             return data
         if endpoint == "github_matching_tags":
-            return _matching_tags(data)
+            return _matching_tags(data, cast("int", query.values[1]))
         if endpoint in {"github_commit", "github_upstream_head"}:
             if (
                 not isinstance(data, dict)
@@ -659,24 +694,39 @@ def _release(item: object) -> dict[str, object]:
     }
 
 
-def _matching_tags(data: object) -> list[dict[str, str]]:
+def _matching_tags(data: object, limit: int) -> list[dict[str, str]]:
     if not isinstance(data, list):
-        raise PublicReadError("unexpected matching-refs response shape")
+        raise PublicReadError("unexpected repository-tags response shape")
+    # A full raw page cannot establish completeness, even if few names start with v.
+    if len(data) >= limit:
+        raise PublicReadError("repository-tags response hit the bounded pagination limit")
     result: list[dict[str, str]] = []
     seen: set[str] = set()
     for item in data:
-        if not isinstance(item, dict) or not isinstance(item.get("ref"), str):
-            raise PublicReadError("matching-refs list contains a malformed item")
-        ref = item["ref"]
-        obj = item.get("object")
-        if not ref.startswith("refs/tags/v") or ref in seen or not isinstance(obj, dict):
-            raise PublicReadError("matching-refs response is ambiguous")
-        sha = obj.get("sha")
-        obj_type = obj.get("type")
-        if not isinstance(sha, str) or not _SHA.fullmatch(sha) or obj_type not in {"commit", "tag"}:
-            raise PublicReadError("matching ref has an invalid target")
-        seen.add(ref)
-        result.append({"ref": ref, "sha": sha.lower(), "type": obj_type})
+        if not isinstance(item, dict):
+            raise PublicReadError("repository-tags list contains a malformed item")
+        name = item.get("name")
+        if (
+            not isinstance(name, str)
+            or not _TAG_NAME.fullmatch(name)
+            or name.endswith(".")
+            or ".." in name
+            or "@{" in name
+            or any(
+                not part or part.startswith(".") or part.endswith(".lock")
+                for part in name.split("/")
+            )
+        ):
+            raise PublicReadError("repository-tags list contains an invalid name")
+        if name in seen:
+            raise PublicReadError("repository-tags response contains a duplicate name")
+        commit = item.get("commit")
+        sha = commit.get("sha") if isinstance(commit, dict) else None
+        if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+            raise PublicReadError("repository tag has an invalid commit target")
+        seen.add(name)
+        if name.startswith("v"):
+            result.append({"ref": f"refs/tags/{name}", "sha": sha.lower(), "type": "commit"})
     return result
 
 

@@ -376,11 +376,18 @@ def test_python_mine_entry_points_expand_tilde_palace_paths(tmp_path, monkeypatc
         "Use the rollback command with the previous version tag and verify the logs.\n"
     )
 
+    mine(str(project), palace_path="~/palaces/code", dry_run=True)
+    mine_convos(
+        str(convos), palace_path="~/conversation-palaces/convos", wing="chats", dry_run=True
+    )
+    assert not (home / "palaces").exists()
+    assert not (home / "conversation-palaces").exists()
     mine(str(project), palace_path="~/palaces/code")
-    mine_convos(str(convos), palace_path="~/palaces/convos", wing="chats")
+    assert not (home / "conversation-palaces").exists()
+    mine_convos(str(convos), palace_path="~/conversation-palaces/convos", wing="chats")
 
     assert open_store(str(home / "palaces" / "code"), create=False).count() > 0
-    assert open_store(str(home / "palaces" / "convos"), create=False).count() > 0
+    assert open_store(str(home / "conversation-palaces" / "convos"), create=False).count() > 0
     assert (home / "palaces" / "code" / ".mempalace" / "tiny_hashes.json").is_file()
     assert not (cwd / "~").exists()
 

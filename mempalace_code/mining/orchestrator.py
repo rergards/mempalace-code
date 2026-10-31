@@ -1406,7 +1406,7 @@ def _mine_command(
     return " ".join(_shell_quote(part) for part in parts)
 
 
-@holds_palace_write_lease("mine", on_acquire=prune_settled_versions)
+@holds_palace_write_lease("mine", on_acquire=prune_settled_versions, prepare_parent=True)
 def mine(
     project_dir: str,
     palace_path: str,

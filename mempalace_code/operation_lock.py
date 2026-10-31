@@ -448,6 +448,88 @@ def palace_lock_path(palace_path: str | os.PathLike[str]) -> Path:
     return Path.home() / ".mempalace" / "locks" / f"palace-{digest}.lock"
 
 
+def palace_writer_lock_path(palace_path: str | os.PathLike[str]) -> Path:
+    """Return the permanent sibling anchor shared by writers across HOME directories.
+
+    Keep the legacy HOME lease for older clients using that same HOME. Older
+    clients using a different HOME do not participate in this additional fence.
+    Never unlink the anchor: replacing it would split coordination across inodes.
+    The sibling location stays outside palace archives and survives root creation.
+    """
+    palace = Path(os.path.realpath(os.path.expanduser(os.fspath(palace_path))))
+    return palace.with_name(f".{palace.name}.mempalace-writer.lock")
+
+
+@dataclass
+class _PalaceWriterFence:
+    path: Path
+    fd: int
+
+    def validate(self) -> None:
+        """Refuse a replaced, linked, non-regular, or foreign-owned anchor."""
+        try:
+            named = os.lstat(self.path)
+            held = os.fstat(self.fd)
+            if (
+                stat.S_ISREG(named.st_mode)
+                and stat.S_ISREG(held.st_mode)
+                and named.st_nlink == held.st_nlink == 1
+                and named.st_uid == held.st_uid == os.getuid()
+                and (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino)
+            ):
+                return
+        except OSError:
+            pass
+        raise OperationLockedError({"operation": "unsafe or replaced palace writer lock"})
+
+
+def _acquire_palace_writer_fence(
+    path: Path, deadline: float, on_wait: OwnerCallback
+) -> _PalaceWriterFence:
+    """Lock one safe inode without writing metadata or creating the palace root."""
+    if fcntl is None or not hasattr(os, "O_NOFOLLOW"):
+        raise OperationLockUnavailable("palace writer locking requires POSIX O_NOFOLLOW")
+    fd = -1
+    try:
+        try:
+            named = os.lstat(path)
+        except FileNotFoundError:
+            pass
+        else:
+            if (
+                not stat.S_ISREG(named.st_mode)
+                or named.st_nlink != 1
+                or named.st_uid != os.getuid()
+            ):
+                raise OperationLockedError({"operation": "unsafe palace writer lock"})
+        # O_NONBLOCK also prevents an inode-swap to a FIFO from blocking open().
+        # Read-only access permits a safe 0400 anchor and never truncates content.
+        fd = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        fence = _PalaceWriterFence(path, fd)
+        fence.validate()
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                remaining = deadline - time.monotonic()
+                owner: dict[str, object] = {"operation": "active palace writer"}
+                if remaining <= 0:
+                    raise OperationLockedError(owner) from exc
+                on_wait(owner)
+                time.sleep(min(_LOCK_POLL_SECONDS, remaining))
+        fence.validate()
+        fd = -1
+        return fence
+    except OSError as exc:
+        raise OperationLockedError(
+            {"operation": f"palace writer lock unavailable: {exc.strerror}"}
+        ) from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def _inherits_install_lease(install: OperationLock) -> bool:
     """Return True when the parent's live wing-migration fence covers this process.
 
@@ -471,8 +553,9 @@ def _inherits_install_lease(install: OperationLock) -> bool:
 # threads of one process in line, and the depth counter lets a writer that
 # already holds the lease (mine -> optimize -> cleanup) nest without asking the
 # kernel for a second, self-conflicting flock.
-_PALACE_THREAD_LOCKS: dict[str, threading.RLock] = {}
-_PALACE_DEPTH: dict[str, int] = {}
+_PALACE_THREAD_LOCKS: dict[tuple[int, str], threading.RLock] = {}
+_PALACE_DEPTH: dict[tuple[int, threading.Thread, str], int] = {}
+_PALACE_WRITER_FENCES: dict[tuple[int, threading.Thread, str], _PalaceWriterFence] = {}
 _PALACE_REGISTRY_GUARD = threading.Lock()
 
 
@@ -490,12 +573,78 @@ def _print_wait_notice(palace_path: str) -> OwnerCallback:
 
 
 @contextmanager
+def _palace_write_preparation(
+    palace_path: str | os.PathLike[str],
+    operation: str,
+    *,
+    wait: float | None = None,
+    on_wait: OwnerCallback | None = None,
+    expected_anchor: Path | None = None,
+) -> Iterator[Path]:
+    """Hold the existing thread, installation and legacy fences without creating parents.
+
+    Restore stages and validates its archive inside these fences before requesting
+    the canonical writer fence. Keep the ordinary writer's acquisition order and
+    reuse only a live, linked exclusive legacy lease in this thread.
+    """
+    palace_text = os.fspath(palace_path)
+    anchor = palace_writer_lock_path(palace_text)
+    if expected_anchor is not None and anchor != expected_anchor:
+        raise OperationLockedError({"operation": "palace writer destination changed"})
+    key = str(anchor)
+    budget = DEFAULT_PALACE_WRITE_WAIT_SECONDS if wait is None else max(wait, 0.0)
+    deadline = time.monotonic() + budget
+    with _PALACE_REGISTRY_GUARD:
+        thread_lock = _PALACE_THREAD_LOCKS.setdefault((os.getpid(), key), threading.RLock())
+    if not thread_lock.acquire(timeout=budget):
+        raise PalaceBusyError(palace_text, {"pid": os.getpid()}, budget)
+    leases: list[OperationLease] = []
+    try:
+        if fcntl is not None:
+            install = OperationLock.default()
+            if not install.held_in_thread() and not _inherits_install_lease(install):
+                leases.append(install.acquire_shared(operation, palace=palace_text))
+            lock = OperationLock.for_palace(palace_text)
+            try:
+                # A standalone legacy lease retains its ordinary contention path.
+                # Reuse is limited to a full writer or pinned restore preparation.
+                nested_writer = _PALACE_DEPTH.get((os.getpid(), threading.current_thread(), key), 0)
+                if lock.held_in_thread() and (expected_anchor is not None or nested_writer):
+                    if not lock.held_linked_in_thread(exclusive=True):
+                        missing = (
+                            ": lease file is missing" if not os.path.lexists(lock.path) else ""
+                        )
+                        raise OperationLockedError(
+                            {"operation": f"unsafe or replaced legacy palace writer lock{missing}"}
+                        )
+                else:
+                    leases.append(
+                        lock.acquire_exclusive(
+                            operation,
+                            wait=max(deadline - time.monotonic(), 0.0),
+                            on_wait=on_wait or _print_wait_notice(palace_text),
+                        )
+                    )
+                if palace_writer_lock_path(palace_text) != anchor:
+                    raise OperationLockedError({"operation": "palace writer destination changed"})
+            except OperationLockedError as exc:
+                raise PalaceBusyError(palace_text, exc.owner, budget) from exc
+        yield anchor
+    finally:
+        for lease in reversed(leases):
+            lease.release()
+        thread_lock.release()
+
+
+@contextmanager
 def palace_write_lease(
     palace_path: str | os.PathLike[str],
     operation: str,
     *,
     wait: float | None = None,
     on_wait: OwnerCallback | None = None,
+    prepare_parent: bool = False,
+    _expected_anchor: Path | None = None,
 ) -> Iterator[None]:
     """Hold the exclusive write lease of one palace for the ``with`` block.
 
@@ -508,58 +657,80 @@ def palace_write_lease(
     that lease, so updates and exclusive maintenance never run mid-write.  The
     one exception is a child the wing-migration runner starts inside its
     exclusive fence and names in :data:`INHERITED_LEASE_ENV`.
-    Re-entering from the thread that already holds the lease is a no-op.
+    On POSIX, the permanent sibling anchor also serializes writers with different
+    HOME directories. Readers retain their separate snapshot fence and can overlap
+    ordinary writes. Missing anchor parents or unsafe anchors refuse the write.
+    Without fcntl, only the existing in-process thread serialization is available.
+    Re-entering from the owning thread revalidates the held anchor.
+    Initializers may opt into *prepare_parent* to create only the anchor's parent
+    under the installation and legacy palace leases, before acquiring the anchor.
+    A changed canonical destination refuses initialization.
     """
     palace_text = os.fspath(palace_path)
-    lock = OperationLock.for_palace(palace_text)
-    key = lock._hold_key()
     budget = DEFAULT_PALACE_WRITE_WAIT_SECONDS if wait is None else max(wait, 0.0)
     deadline = time.monotonic() + budget
-    with _PALACE_REGISTRY_GUARD:
-        thread_lock = _PALACE_THREAD_LOCKS.setdefault(key, threading.RLock())
-    if not thread_lock.acquire(timeout=budget):
-        raise PalaceBusyError(palace_text, {"pid": os.getpid()}, budget)
-    try:
-        depth = _PALACE_DEPTH.get(key, 0)
+    notified = False
+    callback = on_wait or _print_wait_notice(palace_text)
+
+    def notify(owner: dict[str, object] | None) -> None:
+        nonlocal notified
+        if not notified:
+            notified = True
+            callback(owner)
+
+    with _palace_write_preparation(
+        palace_text, operation, wait=budget, on_wait=notify, expected_anchor=_expected_anchor
+    ) as anchor:
+        owner_key = (os.getpid(), threading.current_thread(), str(anchor))
+        depth = _PALACE_DEPTH.get(owner_key, 0)
         if depth:
-            _PALACE_DEPTH[key] = depth + 1
+            if fcntl is not None:
+                _PALACE_WRITER_FENCES[owner_key].validate()
+            _PALACE_DEPTH[owner_key] = depth + 1
             try:
                 yield
             finally:
-                _PALACE_DEPTH[key] = depth
+                _PALACE_DEPTH[owner_key] = depth
             return
 
-        leases: list[OperationLease] = []
         try:
             # Without POSIX advisory locks only this process's threads are serialized.
             if fcntl is not None:
-                install = OperationLock.default()
-                if not install.held_in_thread() and not _inherits_install_lease(install):
-                    leases.append(install.acquire_shared(operation, palace=palace_text))
                 try:
-                    leases.append(
-                        lock.acquire_exclusive(
-                            operation,
-                            wait=max(deadline - time.monotonic(), 0.0),
-                            on_wait=on_wait or _print_wait_notice(palace_text),
-                        )
+                    if prepare_parent:
+                        try:
+                            anchor.parent.mkdir(parents=True, exist_ok=True)
+                        except OSError as exc:
+                            raise OperationLockedError(
+                                {"operation": f"palace writer parent unavailable: {exc.strerror}"}
+                            ) from exc
+                        if palace_writer_lock_path(palace_text) != anchor:
+                            raise OperationLockedError(
+                                {"operation": "palace writer destination changed"}
+                            )
+                    _PALACE_WRITER_FENCES[owner_key] = _acquire_palace_writer_fence(
+                        anchor, deadline, notify
                     )
+                    if prepare_parent and palace_writer_lock_path(palace_text) != anchor:
+                        raise OperationLockedError(
+                            {"operation": "palace writer destination changed"}
+                        )
                 except OperationLockedError as exc:
                     raise PalaceBusyError(palace_text, exc.owner, budget) from exc
-            _PALACE_DEPTH[key] = 1
+            _PALACE_DEPTH[owner_key] = 1
             yield
         finally:
-            _PALACE_DEPTH.pop(key, None)
-            for lease in reversed(leases):
-                lease.release()
-    finally:
-        thread_lock.release()
+            _PALACE_DEPTH.pop(owner_key, None)
+            fence = _PALACE_WRITER_FENCES.pop(owner_key, None)
+            if fence is not None:
+                os.close(fence.fd)
 
 
 def holds_palace_write_lease(
     operation: str,
     *,
     on_acquire: Callable[[str], object] | None = None,
+    prepare_parent: bool = False,
 ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Decorate a writer whose ``palace_path`` argument names the palace it mutates.
 
@@ -577,7 +748,7 @@ def holds_palace_write_lease(
             palace_path = arguments.get("palace_path")
             if not palace_path or arguments.get("dry_run"):
                 return func(*args, **kwargs)
-            with palace_write_lease(palace_path, operation):
+            with palace_write_lease(palace_path, operation, prepare_parent=prepare_parent):
                 if on_acquire is not None:
                     on_acquire(os.fspath(palace_path))
                 return func(*args, **kwargs)

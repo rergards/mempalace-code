@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## v1.16.2 — 2026-10-31
+
+### Security
+
+- Lock release-tool pyasn1 to 0.6.5 to fix four ASN.1 decoding
+  denial-of-service advisories.
+- Pin the PyPI publishing action to v1.14.3, removing revoked emSign trust
+  roots and checking runtime dependency hashes (GHSA-5xjx-3w67-w9x9).
+- Require FastEmbed 0.9.1 or newer within the 0.9 series and Pillow 13, retain
+  the OpenTelemetry API 1.45.1 minimum, and lock dnspython 2.9.0. Retire the
+  obsolete Pillow and OpenTelemetry exceptions; strict dependency audits
+  require patched packages without a temporary waiver.
+
+### Fixed
+
+- Serialize POSIX palace writers across HOME directories with a stable sibling
+  anchor while retaining same-HOME compatibility and parallel snapshot reads.
+  Require the anchor parent and refuse unsafe anchor shapes.
+- Reduce backup-retention verification disk use by releasing each verified scratch
+  copy before restoring the next recovery point. Both full restore checks remain
+  required before archives expire.
+- Stop admitting watcher mining and maintenance work after a shutdown request.
+- Preserve active palace and knowledge-graph writes when stopping managed
+  watchers. Refuse ambiguous actor or lock ownership.
+- Hold updater write fences until the stopped watcher has exited, including
+  failed or interrupted stop attempts.
+
 ## v1.16.1 — 2026-10-24
 
 ### Security

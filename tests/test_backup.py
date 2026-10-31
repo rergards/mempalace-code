@@ -104,6 +104,160 @@ def _build_malicious_archive(
 # ── create_backup ──────────────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize("force", [False, True])
+def test_restore_validated_backup_creates_nested_missing_parents(palace_path, tmp_path, force):
+    store = open_store(palace_path, create=True)
+    store.add(
+        ids=["nested-restore"],
+        documents=["A drawer restored into missing parent directories."],
+        metadatas=[{"wing": "fixture", "room": "general"}],
+    )
+    graph = tmp_path / "source.sqlite3"
+    _write_sqlite_kg(str(graph), "RESTORED")
+    _, archive = create_backup(palace_path, kg_path=str(graph))
+    target = tmp_path / "absent" / "nested" / "palace"
+
+    metadata = restore_backup(archive, str(target), force=force)
+
+    assert metadata["drawer_count"] == 1
+    restored = open_store(str(target), create=False, read_only=True)
+    assert restored.get(ids=["nested-restore"])["ids"] == ["nested-restore"]
+    with sqlite3.connect(target / "knowledge_graph.sqlite3") as connection:
+        assert connection.execute("SELECT value FROM marker").fetchall() == [("RESTORED",)]
+
+
+@pytest.mark.parametrize("failure", ["metadata", "structure", "crc", "degraded", "lance", "kg"])
+@pytest.mark.parametrize("force", [False, True])
+def test_restore_invalid_archive_leaves_missing_ancestor_chain_absent(tmp_path, failure, force):
+    import gzip
+
+    archive = tmp_path / "invalid.tar.gz"
+    metadata = {"drawer_count": 0, "wings": []}
+    if failure == "metadata":
+        metadata["drawer_count"] = -1
+    if failure == "degraded":
+        metadata["degraded"] = True
+    with tarfile.open(archive, "w:gz") as tar:
+        _write_member(
+            tar, "mempalace_backup/metadata.json", tarfile.REGTYPE, json.dumps(metadata).encode()
+        )
+        if failure == "structure":
+            _write_member(tar, "mempalace_backup/lance/../../escape", tarfile.REGTYPE, b"bad")
+        if failure == "lance":
+            _write_member(tar, "mempalace_backup/lance", tarfile.DIRTYPE)
+            _write_member(tar, "mempalace_backup/lance/broken", tarfile.REGTYPE, b"bad")
+        if failure == "kg":
+            _write_member(tar, "mempalace_backup/knowledge_graph.sqlite3", tarfile.REGTYPE, b"bad")
+    if failure == "crc":
+        compressed = bytearray(archive.read_bytes())
+        compressed[-8] ^= 1
+        archive.write_bytes(compressed)
+    target = tmp_path / "absent" / "nested" / "palace"
+
+    with pytest.raises((BackupArchiveError, gzip.BadGzipFile)):
+        restore_backup(str(archive), str(target), force=force)
+
+    assert not (tmp_path / "absent").exists()
+
+
+def test_restore_refuses_canonical_destination_changed_during_staging(
+    seeded_collection, palace_path, tmp_path, monkeypatch
+):
+    from mempalace_code.operation_lock import OperationLockedError
+
+    _, archive = create_backup(palace_path)
+    target = tmp_path / "absent" / "nested" / "palace"
+    redirected = tmp_path / "redirected"
+    redirected.mkdir()
+    real_verify = backup_module._verify_restored_lance
+
+    def redirect_after_validation(path, count):
+        real_verify(path, count)
+        (tmp_path / "absent").symlink_to(redirected, target_is_directory=True)
+
+    monkeypatch.setattr(backup_module, "_verify_restored_lance", redirect_after_validation)
+    with pytest.raises(OperationLockedError, match="destination changed"):
+        restore_backup(archive, str(target))
+    assert list(redirected.iterdir()) == []
+
+
+def test_restore_rechecks_collisions_after_staging(
+    seeded_collection, palace_path, tmp_path, monkeypatch
+):
+    from mempalace_code import operation_lock
+
+    _, archive = create_backup(palace_path)
+    target = tmp_path / "target"
+    real_verify = backup_module._verify_restored_lance
+    writers: list[subprocess.Popen[str]] = []
+    waited = []
+
+    def release_competing_writer(palace):
+        def release(owner):
+            waited.append(owner)
+            writer = writers[0]
+            assert writer.stdin is not None
+            writer.stdin.write("release\n")
+            writer.stdin.flush()
+
+        return release
+
+    def competing_publication(path, count):
+        real_verify(path, count)
+        writer = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import pathlib,sys; from mempalace_code.operation_lock import palace_write_lease; "
+                "target=pathlib.Path(sys.argv[1]); "
+                "lease=palace_write_lease(target, 'competing writer', wait=0); lease.__enter__(); "
+                "target.mkdir(); (target/'foreign').write_bytes(b'concurrent publication'); "
+                "print('ready',flush=True); sys.stdin.readline(); lease.__exit__(None,None,None)",
+                str(target),
+            ],
+            env={**os.environ, "HOME": str(tmp_path / "other-home")},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        writers.append(writer)
+        assert writer.stdout is not None
+        assert writer.stdout.readline().strip() == "ready"
+
+    monkeypatch.setattr(operation_lock, "_print_wait_notice", release_competing_writer)
+    monkeypatch.setattr(backup_module, "_verify_restored_lance", competing_publication)
+    try:
+        with pytest.raises(FileExistsError):
+            restore_backup(archive, str(target))
+    finally:
+        for writer in writers:
+            assert writer.stdin is not None
+            writer.stdin.close()
+            writer.wait(timeout=5)
+    assert waited
+    assert writers[0].returncode == 0
+    assert (target / "foreign").read_bytes() == b"concurrent publication"
+    assert not (target / "lance").exists()
+
+
+def test_restore_private_target_takes_no_writer_fences(
+    seeded_collection, palace_path, tmp_path, monkeypatch
+):
+    from mempalace_code import operation_lock
+
+    _, archive = create_backup(palace_path)
+
+    def forbidden_fence(*args, **kwargs):
+        pytest.fail("private restore requested a writer fence")
+
+    monkeypatch.setattr(operation_lock, "_palace_write_preparation", forbidden_fence)
+    monkeypatch.setattr(operation_lock, "palace_write_lease", forbidden_fence)
+    target = tmp_path / "private-target"
+    restore_backup(archive, str(target), private_target=True)
+    assert open_store(str(target), create=False, read_only=True).count() == 4
+
+
 def test_archive_publish_never_replaces_a_racing_file_without_hard_links(tmp_path, monkeypatch):
     temporary = tmp_path / "archive.tmp"
     destination = tmp_path / "archive.tar.gz"
@@ -2724,6 +2878,44 @@ def _rewrite_retention_archive(path, change_metadata=lambda metadata: metadata, 
 
 
 class TestGlobalAutomaticRetention:
+    def test_verified_restore_is_removed_before_next_keeper(self, palace_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch)
+        real_restore = backup_module.restore_backup
+        restored_targets = []
+
+        def restore_with_disk_budget(archive, target, **kwargs):
+            # Reproduce a filesystem that can hold one full restore operation,
+            # but cannot also retain the previously validated recovery copy.
+            assert all(not os.path.lexists(previous) for previous in restored_targets)
+            result = real_restore(archive, target, **kwargs)
+            assert os.path.isfile(os.path.join(target, "knowledge_graph.sqlite3"))
+            restored_targets.append(target)
+            return result
+
+        monkeypatch.setattr(backup_module, "restore_backup", restore_with_disk_budget)
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result == {"pruned": paths[:1]}
+        assert len(restored_targets) == 2
+        assert all(not os.path.lexists(target) for target in restored_targets)
+        assert all(os.path.isfile(path) for path in paths[1:])
+
+    def test_verified_restore_cleanup_failure_defers_pruning(self, palace_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch)
+        real_rmtree = backup_module.shutil.rmtree
+
+        def refuse_verified_copy(path, *args, **kwargs):
+            if path == "0":
+                raise OSError("verified copy cleanup failed")
+            return real_rmtree(path, *args, **kwargs)
+
+        monkeypatch.setattr(backup_module.shutil, "rmtree", refuse_verified_copy)
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result == {"pruned": [], "error": "verified copy cleanup failed"}
+        assert all(os.path.isfile(path) for path in paths)
+        assert not any(
+            name.startswith(".retention-") for name in os.listdir(managed_backups_dir(palace_path))
+        )
+
     def test_cross_kind_idle_reconcile_and_repeat(self, palace_path, tmp_path, monkeypatch):
         paths = _retention_pool(palace_path, monkeypatch)
         source = os.path.join(palace_path, "knowledge_graph.sqlite3")
@@ -2867,16 +3059,24 @@ class TestGlobalAutomaticRetention:
         assert sum(os.path.isfile(path) for path in paths) == 2
 
     @pytest.mark.parametrize("damage", ["kg", "truncated"])
-    def test_corrupt_keeper_defers_all_deletion(self, palace_path, tmp_path, monkeypatch, damage):
+    @pytest.mark.parametrize("keeper", [-1, -2])
+    def test_corrupt_keeper_defers_all_deletion(
+        self, palace_path, tmp_path, monkeypatch, damage, keeper
+    ):
         paths = _retention_pool(palace_path, monkeypatch)
+        keeper_stat = os.stat(paths[keeper])
         if damage == "kg":
-            _rewrite_retention_archive(paths[-1], kg=b"not a database")
+            _rewrite_retention_archive(paths[keeper], kg=b"not a database")
         else:
-            with open(paths[-1], "rb+") as archive:
-                archive.truncate(os.path.getsize(paths[-1]) - 12)
+            with open(paths[keeper], "rb+") as archive:
+                archive.truncate(os.path.getsize(paths[keeper]) - 12)
+        os.utime(paths[keeper], ns=(keeper_stat.st_atime_ns, keeper_stat.st_mtime_ns))
         with pytest.raises((BackupArchiveError, EOFError, tarfile.TarError)):
-            restore_backup(paths[-1], str(tmp_path / "refused"))
-        result = backup_module.reconcile_managed_backups(palace_path)
+            restore_backup(paths[keeper], str(tmp_path / "refused"))
+        with patch.object(backup_module, "restore_backup", wraps=restore_backup) as restore:
+            result = backup_module.reconcile_managed_backups(palace_path)
+        assert restore.call_count == -keeper
+        assert restore.call_args.args[0] == paths[keeper]
         assert result["pruned"] == []
         assert result["error"]
         assert all(os.path.exists(path) for path in paths)

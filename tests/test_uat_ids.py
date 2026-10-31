@@ -699,6 +699,18 @@ class TestImportDryRunKgCounts:
 
 
 class TestImportCli:
+    def test_import_initializes_nested_tilde_palace_but_dry_run_does_not(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace = tmp_path / "missing-parent" / "nested" / "palace"
+        jsonl = _write_jsonl(tmp_path / "in.jsonl", [_header(), _drawer("a", "alpha text")])
+        argv = ["--palace", "~/missing-parent/nested/palace", "import", jsonl, "--skip-kg"]
+        assert _run_cli([*argv, "--dry-run"]) == 0
+        assert not (tmp_path / "missing-parent").exists()
+        assert _run_cli(argv) == 0
+        assert open_store(str(palace), create=False).get(ids=["a"])["ids"] == ["a"]
+
     def test_version_warning_printed_once(self, tmp_path, capsys):
         """imp-2: the version-mismatch warning appears exactly once."""
         jsonl = _write_jsonl(

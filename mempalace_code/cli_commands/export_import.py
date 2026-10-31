@@ -321,7 +321,7 @@ def cmd_import(args):
     with contextlib.ExitStack() as held:
         if not args.dry_run:
             try:
-                held.enter_context(palace_write_lease(palace_path, "import"))
+                held.enter_context(palace_write_lease(palace_path, "import", prepare_parent=True))
             except OperationLockedError as exc:
                 print(f"  Error: import did not start: {exc}", file=sys.stderr)
                 print(

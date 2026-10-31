@@ -465,3 +465,45 @@ def test_watcher_starts_after_a_failed_first_mine_left_no_drawer_table(tmp_path)
 
     assert mined, "the initial mine must run"
     assert not (tmp_path / "backups").exists()
+
+
+@pytest.mark.parametrize("command", [["repair"], ["repair", "--rollback"], ["restore"]])
+def test_cross_home_writer_refuses_repair_rollback_and_force_restore(tmp_path, command):
+    import subprocess
+
+    from mempalace_code.operation_lock import palace_write_lease, palace_writer_lock_path
+    from tests.test_uat_leases import _CLI_RUNNER, _child_env
+
+    palace = _make_palace(str(tmp_path / "palace"), "w")
+    _, archive = create_backup(palace, out_path=str(tmp_path / "backup.tar.gz"))
+    with tarfile.open(archive, "r:gz") as tar:
+        assert all(palace_writer_lock_path(palace).name not in name for name in tar.getnames())
+    if command == ["restore"]:
+        command = ["restore", archive, "--force"]
+    before = sorted(os.listdir(os.path.join(palace, "lance")))
+    env = dict(_child_env(tmp_path / "other-home"), TEST_LEASE_WAIT="0.1")
+    with palace_write_lease(palace, "other-home-writer", wait=0):
+        result = subprocess.run(
+            [sys.executable, "-c", _CLI_RUNNER, "--palace", palace, *command],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    assert result.returncode == (75 if command[0] == "restore" else 1), result.stderr
+    assert "refused" in result.stderr or "writer" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert sorted(os.listdir(os.path.join(palace, "lance"))) == before
+    assert open_store(palace, read_only=True).count() == 2
+
+
+def test_invalid_restore_to_missing_root_leaves_root_absent(tmp_path):
+    from mempalace_code.backup import restore_backup
+
+    archive = tmp_path / "invalid.tar.gz"
+    archive.write_bytes(b"invalid archive")
+    palace = tmp_path / "missing"
+    with pytest.raises(tarfile.ReadError):
+        restore_backup(str(archive), str(palace))
+    assert not palace.exists()

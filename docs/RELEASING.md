@@ -51,6 +51,56 @@ Update the version, changelog, public documentation, and generated scorecard in
 one reviewable change. Keep `## Unreleased` at the top of `CHANGELOG.md`; move
 the completed items into the new version heading when cutting the release.
 
+At preparation entry, before expensive qualification or any candidate push, run
+the existing credential-free upstream check:
+
+```bash
+python scripts/upstream_comparison_guard.py --check-live --json
+```
+
+A failed or unavailable check blocks the dependent qualification and candidate push.
+Refresh the reviewed comparison through its existing owner, then rerun the check.
+Retain the immediate final live upstream check before tagging.
+
+The default remains strict: a newer upstream head requires a canonical snapshot
+refresh. For an already qualified, exact candidate, the operator may instead
+accept a supplemental review of a complete noncritical tail. Keep that JSON file
+in ignored local task evidence under `.codex-local/`, or outside the checkout;
+never add it to distribution inputs. The canonical manifest, comparison document,
+README snapshot date, and qualified wheel remain unchanged.
+
+The review has `schema_version: 1`, `candidate_sha`, `canonical_repository`,
+`branch`, `canonical_base` (the manifest `commit`), `inventory_anchor_digest`
+(the manifest anchor digest), `observed_head`, and `commits`. Use the fixed
+repository `https://github.com/MemPalace/mempalace` and branch `develop`.
+List every intervening commit in primary compare order, including merge commits.
+Each entry requires `sha`, `release_critical: false`, `decision` (`irrelevant`
+or `deferred`), a specific nonempty `rationale`, and `source_ref` equal to
+`https://github.com/MemPalace/mempalace/commit/<full-sha>`.
+Any critical, UNKNOWN, missing, duplicate, incomplete, divergent, unavailable,
+or stale evidence refuses this route. A critical change requires the existing
+canonical refresh and affected qualification.
+
+After reviewing the primary commit changes and the exact JSON bytes, the operator
+supplies the accepted SHA-256 separately. A self-declared PASS in the file grants
+no authority. The digest records the caller's acceptance of those bytes; it is
+not cryptographic authentication of an operator. Run the existing owner:
+
+```bash
+python scripts/upstream_comparison_guard.py --check-live --json \
+  --candidate-sha "$CANDIDATE_SHA" --supplemental-review "$REVIEW_FILE" \
+  --accepted-review-sha256 "$ACCEPTED_REVIEW_SHA256"
+```
+
+The guard binds actual candidate HEAD and the canonical inventory anchor, fetches
+the complete descendant compare through bounded credential-free pagination
+(at most 1,000 commits), then re-reads the live head. Upstream movement invalidates
+the acceptance. Review the additional tail, retain prior review evidence, and
+accept a replacement complete review for the new observed head. Recovery command:
+`python scripts/upstream_comparison_guard.py --check-live --json`.
+This route changes only upstream-tail admission. Exact-candidate CI, security
+audits, privacy, installed CLI/MCP, recovery, public-main and tag gates still apply.
+
 Resolve existing authorization before asking for another approval. Preparation,
 disposable-platform testing, candidate push, public promotion, publication and
 live deployment are separate effects; apply the active request to each. A missing
@@ -162,11 +212,23 @@ rebuilds and re-checks it for the exact candidate SHA.
 
 Immediately before creating the immutable tag, run the opt-in live pre-tag
 check. It is the canonical pre-tag command and fails closed when upstream
-`develop` moved or its read-only head lookup cannot be trusted:
+`develop` moved beyond accepted review or its read-only lookup cannot be trusted:
 
 ```bash
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
 ```
+
+For an operator-accepted supplemental review, repeat the live check immediately
+before tagging with the same exact candidate and accepted review bytes:
+
+```bash
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream \
+  --expect-sha "$CANDIDATE_SHA" --supplemental-review "$REVIEW_FILE" \
+  --accepted-review-sha256 "$ACCEPTED_REVIEW_SHA256"
+```
+
+Keep every other admission flag required at the current release stage. A head
+change requires review of the additional tail and fresh explicit digest acceptance.
 
 `release_install_metadata_smoke.py --all-installers --install-spec "$WHEEL"` installs
 the exact candidate wheel through
@@ -254,8 +316,8 @@ contour lives in `docs/OFFLINE_USAGE.md`. Prepare an owner-private scratch direc
 filesystem with adequate free space and preserve one `TMPDIR` across the ordered contour:
 
 ```bash
-install -d -m 700 "$HOME/.cache/mempalace/tmp"
-df -h "$HOME/.cache/mempalace/tmp"
+install -d -m 700 "$HOME/mempalace-release-tmp"
+df -h "$HOME/mempalace-release-tmp"
 ```
 
 Both optional-extra installation stages disable pip download caching. An `Errno 28`,
@@ -267,16 +329,22 @@ adequate allocation or increase the selected quota before repeating the owner
 from the prepared scratch directory:
 
 ```bash
-TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+TMPDIR="$HOME/mempalace-release-tmp" python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
 ```
+
+The full installed suite creates watched projects beneath `TMPDIR`. Choose a path
+outside ignored directories such as `.cache`, and outside the source checkout.
+Run from a clean source worktree and keep retained test artifacts and logs outside
+that worktree so repository-preservation checks can inspect ordinary files.
 
 The default tag preflight is deterministic, local, and non-mutating. It checks
 tag/version agreement, the committed acceptance report for the package tree, the
 documentation contract, the committed-tree public-safety scan, and optionally a
 clean worktree. The explicit
 `--check-live-upstream` mode reuses the read-only shared upstream comparison
-guard; it adds one live branch-head lookup and never rewrites source or Git
-state.
+guard; strict mode adds one live branch-head lookup. The explicit supplemental
+route also checks complete primary compare coverage and re-reads the head.
+Neither route rewrites source or Git state.
 
 The exact-SHA release admission command in section 3c is the publication
 boundary. It runs only after the candidate exists, is green, and is public

@@ -69,6 +69,8 @@ disable-model-invocation: true
 - Use `pyproject.toml`, `CHANGELOG.md`, public docs and existing generators.
   Keep `## Unreleased`; consolidate user-visible changes under the pending version.
   Exclude private operational history and local machine details from public notes.
+- Match `mempalace_code/agent_plugin/plugin.json` version to `project.version`
+  before building. The existing artifact gate checks both wheel and sdist manifests.
 - State exact edited paths and acceptance commands before writing; verify all four
   Git views afterward. Do not add another release controller, gate or procedure.
 - Audit current public entrypoints for each changed behavior: README, feature guide,

@@ -973,7 +973,15 @@ conversation mines at the same time:
 
 - **Writers take turns.** Each `mine` (project or `--mode convos`), each `mine-all`
   project, each watcher re-mine cycle, and each optimize or cleanup holds a per-palace
-  write lease (`~/.mempalace/locks/palace-<id>.lock`). A second writer of the same palace
+  write lease (`~/.mempalace/locks/palace-<id>.lock`) and a permanent sibling
+  `.<canonical-palace-name>.mempalace-writer.lock` beside the canonical palace path.
+  The sibling anchor coordinates upgraded writers that use different HOME directories;
+  older clients with a different HOME must upgrade to participate. The legacy HOME
+  lease still coordinates older clients using the same HOME. The palace parent directory
+  must exist and be usable. An unsafe or unavailable sibling anchor refuses the write;
+  there is no HOME-only fallback. The anchor must be a regular, single-link file owned
+  by the current user. A safe existing anchor can be read-only or nonempty: locking
+  does not write, truncate, or remove its contents. A second writer of the same palace
   prints `Waiting for another MemPalace writer to finish with <palace> (operation=..., pid=...)`
   and then runs, so overlapping mines never file a drawer twice. The CLI waits up to
   30 minutes, then exits 75 and prints the exact command to rerun; `mempalace_mine`
@@ -988,7 +996,11 @@ conversation mines at the same time:
   automatically, and an owner entry left by a killed process is cleared the next time that
   palace is written. When no MemPalace process is running (no MCP server, watcher, mine, or
   scheduled job), the whole `~/.mempalace/locks` directory can be deleted; it is recreated
-  on the next write.
+  on the next write. Keep the sibling anchor during ordinary cleanup. Never unlink
+  or replace it while clients can use the palace: active clients would keep the old
+  inode locked. The anchor is outside the palace and is not included in palace backups.
+  Release footprint verification exempts only known empty lock anchors; a nonempty
+  anchor remains subject to the normal data checks.
 - **Long-running readers stay current.** Every store handle reads the latest committed
   table version at the start of each operation, so an MCP server or watcher sees drawers
   that other processes wrote, without a restart. The MCP server reopens the palace when
@@ -1427,7 +1439,7 @@ the same way, and `version-check --status` says the value is unrecognized. Run `
 
 This is a code-first fork of the upstream `mempalace` project. The canonical upstream repository is [MemPalace/mempalace](https://github.com/MemPalace/mempalace); the older `milla-jovovich/mempalace` URL redirects there.
 
-Snapshot reviewed on 2026-10-23 against upstream `develop` at commit `f41e8e75ddaadf5588d5127715fa531d79eadb45` (upstream release 3.12.0), using pinned upstream public sources. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
+Snapshot reviewed on 2026-10-31 UTC against upstream `develop` at commit `da6e21fbbebff250193812a5786180bb65cfa459` (upstream release 3.12.0), using pinned upstream public sources. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
 
 | Area | Upstream, as advertised at that commit | This fork |
 |---|---|---|
@@ -1718,7 +1730,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](https://github.com/rergards/mempalace-code/blob/main/LICENSE) and [NOTICE](https://github.com/rergards/mempalace-code/blob/main/NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.16.1-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.16.2-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

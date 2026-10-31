@@ -1,5 +1,6 @@
 """UAT regressions for repair, rollback, health, cleanup, and degraded-palace reads."""
 
+import contextlib
 import glob
 import json
 import os
@@ -12,7 +13,7 @@ import pytest
 from mempalace_code.cli import main
 from mempalace_code.cli_invocation import cli_command
 from mempalace_code.knowledge_graph import KnowledgeGraph, palace_kg_path
-from mempalace_code.operation_lock import OperationLock
+from mempalace_code.operation_lock import OperationLock, OperationLockedError, PalaceBusyError
 from mempalace_code.storage import LanceStore, PalaceReadError, open_store
 
 
@@ -251,6 +252,39 @@ def test_repair_without_a_writable_parent_explains_and_changes_nothing(tmp_path,
     assert "repair cannot create its pre-repair copy next to the palace" in err
     assert "The palace was not changed" in err
     assert f"make {parent} writable" in err
+    assert "Repair complete" not in out
+    assert _data_files(palace) == files_before
+    assert _backups(palace) == []
+    assert not glob.glob(os.path.join(palace, ".mempalace-repair-*"))
+
+
+@pytest.mark.parametrize(
+    ("parent_writable", "cause"),
+    [(False, BlockingIOError()), (False, None), (True, PermissionError())],
+    ids=["contended-readonly-parent", "unsafe-readonly-parent", "anchor-permission-only"],
+)
+def test_repair_preserves_other_writer_refusals(tmp_path, capsys, parent_writable, cause):
+    palace, _ = _make_palace(tmp_path)
+    files_before = _data_files(palace)
+
+    @contextlib.contextmanager
+    def refused_writer(*args, **kwargs):
+        try:
+            raise OperationLockedError({"operation": "writer refusal"}) from cause
+        except OperationLockedError as exc:
+            raise PalaceBusyError(palace, exc.owner) from exc
+        yield  # pragma: no cover - the lease must refuse before entering repair
+
+    with (
+        patch("mempalace_code.cli_commands.maintenance.palace_write_lease", refused_writer),
+        patch("mempalace_code.cli_commands.maintenance.os.access", return_value=parent_writable),
+    ):
+        code, out, err = _run(["--palace", palace, "repair"], capsys)
+
+    assert code == 1
+    assert "repair refused" in err
+    assert "writer refusal" in err
+    assert "repair cannot create its pre-repair copy" not in err
     assert "Repair complete" not in out
     assert _data_files(palace) == files_before
     assert _backups(palace) == []

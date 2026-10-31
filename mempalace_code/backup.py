@@ -594,6 +594,12 @@ def reconcile_managed_backups(palace_path: str, config=None) -> dict:
                     shutil.rmtree(scratch_name, dir_fd=fd)
 
                 stack.callback(remove_scratch)
+                scratch_fd = os.open(
+                    scratch_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
+                )
+                stack.callback(os.close, scratch_fd)
+                if _path_identity(scratch) != scratch_identity:
+                    raise ValueError("Retention scratch identity changed")
                 for index, (_, name, state) in enumerate(keepers[:2]):
                     check_files(candidates)
                     file_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
@@ -610,6 +616,13 @@ def reconcile_managed_backups(palace_path: str, config=None) -> dict:
                             raise ValueError("Retention keeper has no recovery payload")
                         if _retention_file_state(os.fstat(archive.fileno())) != state:
                             raise ValueError("Retention keeper changed during verification")
+                    check_files(candidates)
+                    current_scratch = os.stat(scratch_name, dir_fd=fd, follow_symlinks=False)
+                    if (current_scratch.st_dev, current_scratch.st_ino) != scratch_identity:
+                        raise ValueError("Retention scratch identity changed")
+                    # The verified archives remain pinned. Their disposable restored
+                    # copies need not coexist while the next recovery point is checked.
+                    shutil.rmtree(str(index), dir_fd=scratch_fd)
                 check_files(candidates)
                 for victim in victims:
                     check_files([*keepers, victim])
@@ -962,7 +975,7 @@ def restore_backup(
         such an archive restores, and the returned metadata's ``legacy_kg`` is True.
     """
     from .knowledge_graph import kg_ids_missing_from, kg_integrity_problem, palace_kg_path
-    from .operation_lock import palace_write_lease
+    from .operation_lock import _palace_write_preparation, palace_write_lease
 
     if _archive_file is not None and not private_target:
         raise ValueError("A pinned archive handle requires a private restore target")
@@ -970,13 +983,14 @@ def restore_backup(
         kg_path = palace_kg_path(palace_path)
 
     lance_dir = os.path.join(palace_path, "lance")
-    # A writer holding the palace write lease (a mine creating the drawer table)
-    # must not interleave with publishing the restored state.
-    lease = (
-        contextlib.nullcontext() if private_target else palace_write_lease(palace_path, "restore")
-    )
-    with lease:
-        palace_was_absent = not os.path.lexists(palace_path)
+    # Keep installation and legacy clients fenced while staging. The canonical
+    # writer fence needs an existing parent, so acquire it only after validation.
+    with contextlib.ExitStack() as leases:
+        initial_anchor = (
+            None
+            if private_target
+            else leases.enter_context(_palace_write_preparation(palace_path, "restore"))
+        )
         with tarfile.open(
             archive_path if _archive_file is None else None, "r:gz", fileobj=_archive_file
         ) as tar:
@@ -995,27 +1009,10 @@ def restore_backup(
                     str(metadata.get("degraded_error") or "unknown"),
                 )
 
-            # Validation and metadata parsing complete before any destination mutation.
+            # Preserve the early, read-only refusal for known occupied targets.
+            # Recheck after staging under the canonical writer fence as well.
             if not force:
                 _refuse_restore_collisions(palace_path, kg_path)
-            else:
-                try:
-                    palace_mode = os.lstat(palace_path).st_mode
-                except FileNotFoundError:
-                    palace_mode = None
-                if palace_mode is not None and stat.S_ISLNK(palace_mode):
-                    resolved = os.path.realpath(palace_path)
-                    raise RestoreTargetError(
-                        f"Restore palace root {palace_path!r} is a symlink to {resolved!r}; "
-                        "--force does not replace a symlinked palace root. Rerun with the "
-                        f"resolved path: mempalace-code --palace {shlex.quote(resolved)} restore "
-                        f"{shlex.quote(os.path.abspath(archive_path))} --force"
-                    )
-                if palace_mode is not None and not stat.S_ISDIR(palace_mode):
-                    raise RestoreTargetError(
-                        f"Restore palace root is not a directory: {palace_path!r}. "
-                        "Move it aside, then rerun restore."
-                    )
 
             with tempfile.TemporaryDirectory(
                 prefix="mempalace_restore_",
@@ -1052,6 +1049,7 @@ def restore_backup(
                 extracted_kg = os.path.join(tmpdir, "knowledge_graph.sqlite3")
                 legacy_kg = False
                 legacy_kg_possible = False
+                archived_ids: list[str] = []
                 if has_kg:
                     kg_problem = kg_integrity_problem(extracted_kg)
                     if kg_problem is not None and kg_problem["kind"] == "kg_corrupt":
@@ -1059,6 +1057,41 @@ def restore_backup(
                     origin, archived_ids = _archived_kg_origin(metadata, extracted_kg)
                     legacy_kg = origin == "legacy"
                     legacy_kg_possible = origin == "unknown"
+                if not private_target:
+                    leases.enter_context(
+                        palace_write_lease(
+                            palace_path,
+                            "restore",
+                            prepare_parent=True,
+                            _expected_anchor=initial_anchor,
+                        )
+                    )
+                # Refresh destination state after the final writer fence: another
+                # HOME may have published while this archive was being validated.
+                palace_was_absent = not os.path.lexists(palace_path)
+                # Validation and metadata parsing complete before any destination mutation.
+                if not force:
+                    _refuse_restore_collisions(palace_path, kg_path)
+                else:
+                    try:
+                        palace_mode = os.lstat(palace_path).st_mode
+                    except FileNotFoundError:
+                        palace_mode = None
+                    if palace_mode is not None and stat.S_ISLNK(palace_mode):
+                        resolved = os.path.realpath(palace_path)
+                        raise RestoreTargetError(
+                            f"Restore palace root {palace_path!r} is a symlink to {resolved!r}; "
+                            "--force does not replace a symlinked palace root. Rerun with the "
+                            f"resolved path: mempalace-code --palace {shlex.quote(resolved)} restore "
+                            f"{shlex.quote(os.path.abspath(archive_path))} --force"
+                        )
+                    if palace_mode is not None and not stat.S_ISDIR(palace_mode):
+                        raise RestoreTargetError(
+                            f"Restore palace root is not a directory: {palace_path!r}. "
+                            "Move it aside, then rerun restore."
+                        )
+
+                if has_kg:
                     replaces_palace_kg = (
                         force
                         and os.path.lexists(kg_path)

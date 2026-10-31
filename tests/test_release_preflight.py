@@ -219,7 +219,7 @@ def test_default_preflight_executes_static_upstream_guard_successfully():
 
     upstream = next(check for check in checks if check["name"] == "upstream_comparison")
     assert upstream["status"] == "ok"
-    assert "manifest_inventory_commits=409" in upstream["detail"]
+    assert "manifest_inventory_commits=438" in upstream["detail"]
 
 
 def test_default_preflight_propagates_static_inventory_failure(tmp_path: Path):
@@ -1274,3 +1274,85 @@ def test_invalid_exception_document_blocks_local_preflight(tmp_path, contents):
     path.write_text(contents)
     row = preflight.check_dependency_risk_expiry(root, today_iso="2026-10-22")
     assert row["status"] == "fail"
+
+
+def test_preflight_forwards_exact_accepted_review_and_candidate(tmp_path):
+    root = _root(tmp_path)
+    commands = []
+
+    def run(command, _root):
+        commands.append(command)
+        return 0, "passed"
+
+    preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        check_live_upstream=True,
+        expect_sha="a" * 40,
+        supplemental_review=tmp_path / "review.json",
+        accepted_review_sha256="b" * 64,
+        run=run,
+    )
+    assert [
+        preflight.sys.executable,
+        "scripts/upstream_comparison_guard.py",
+        "--check-live",
+        "--supplemental-review",
+        str(tmp_path / "review.json"),
+        "--accepted-review-sha256",
+        "b" * 64,
+        "--candidate-sha",
+        "a" * 40,
+    ] in commands
+
+
+@pytest.mark.parametrize(
+    "live,candidate,digest",
+    [(False, "a" * 40, "b" * 64), (True, None, "b" * 64), (True, "a" * 40, None)],
+)
+def test_preflight_refuses_incomplete_supplemental_authority(tmp_path, live, candidate, digest):
+    root = _root(tmp_path)
+    with pytest.raises(ValueError, match="supplemental review requires"):
+        preflight.evaluate(
+            root,
+            tag=None,
+            require_clean=False,
+            check_live_upstream=live,
+            expect_sha=candidate,
+            supplemental_review=tmp_path / "review.json",
+            accepted_review_sha256=digest,
+            run=lambda *_: (0, "passed"),
+        )
+
+
+def test_cli_forwards_supplemental_acceptance_flags(tmp_path, monkeypatch, capsys):
+    observed = {}
+
+    def evaluate(root, **options):
+        observed.update(options)
+        return "1.2.3", []
+
+    monkeypatch.setattr(preflight, "evaluate", evaluate)
+    assert (
+        preflight.main(
+            [
+                "--root",
+                str(tmp_path),
+                "--check-live-upstream",
+                "--expect-sha",
+                "a" * 40,
+                "--supplemental-review",
+                str(tmp_path / "review.json"),
+                "--accepted-review-sha256",
+                "b" * 64,
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert observed["supplemental_review"] == tmp_path / "review.json"
+    assert observed["accepted_review_sha256"] == "b" * 64
+    assert observed["expect_sha"] == "a" * 40
+    assert observed["check_live_upstream"] is True

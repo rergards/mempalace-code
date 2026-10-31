@@ -2161,14 +2161,14 @@ class TestSafeOptimize:
 
         assert result is False
 
-    def test_reopen_failure_after_optimize_returns_false(self):
+    def test_reopen_failure_after_optimize_returns_false(self, tmp_path):
         """safe_optimize must verify a fresh Lance handle after optimize."""
         table = _OptimizableTable([{"wing": "w", "room": "r"}])
         store = LanceStore.__new__(LanceStore)
         store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
         store._db = _ReopenDB(error=RuntimeError("missing fragment after reopen"))  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake only needs open_table for this path
 
-        result = store.safe_optimize("/fake/palace", backup_first=False)
+        result = store.safe_optimize(str(tmp_path / "palace"), backup_first=False)
 
         assert result is False
         assert table.optimize_calls
