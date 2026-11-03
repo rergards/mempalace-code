@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## v1.16.3 — 2026-11-02
+
+### Fixed
+
+- Bound retention verification scratch space using validated expanded archive
+  sizes and avoid a second copy of extracted Lance data. Keep complete restore
+  validation and preserve recovery points when space is insufficient.
+- Preserve foreign replacement directories when a failed retention restore
+  encounters reused filesystem inode numbers.
+- Accept padded macOS process timestamps and wait for launchd unload within the
+  existing command budget while preserving watcher write fences.
+- Reconcile exact stored snapshots from retired project technical directories,
+  retaining distinct snapshots, alias targets, and knowledge graph provenance
+  behind the existing backup and deletion guards.
+- Stage restores for new destinations beneath their nearest existing parent so
+  extraction uses the destination filesystem. Preserve occupied-target refusals
+  and knowledge graph state.
+- Isolate pytest sessions from inherited MemPalace configuration before package
+  imports. Preserve test harness controls, explicit test overrides, and the
+  original environment after session teardown.
+
+### Security
+
+- Update the scanner dependency graph while retaining audited minimum versions.
+  Reject missing or lowered security constraints through the existing scanner
+  guard before tool invocation.
+- Update pinned Python setup actions to v7.1.0.
+
 ## v1.16.2 — 2026-10-31
 
 ### Security

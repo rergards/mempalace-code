@@ -211,6 +211,23 @@ def check_backup_budget(
     )
 
 
+def check_retention_restore_budget(
+    scratch_path: str,
+    expanded_bytes: int,
+    kg_bytes: int,
+    min_free_bytes_threshold: int,
+) -> None:
+    """Reserve extracted archive bytes plus the KG publication copy on scratch's filesystem."""
+    free = free_bytes(scratch_path)
+    required = expanded_bytes + kg_bytes
+    if free - required < min_free_bytes_threshold:
+        raise DiskBudgetError(
+            "Retention verification needs "
+            f"{format_bytes(required)} scratch plus {format_bytes(min_free_bytes_threshold)} "
+            f"free; only {format_bytes(free)} is available. Retention deferred."
+        )
+
+
 def format_bytes(n: int) -> str:
     """Format bytes as a human-readable string."""
     for unit, threshold in [("GiB", 1024**3), ("MiB", 1024**2), ("KiB", 1024)]:

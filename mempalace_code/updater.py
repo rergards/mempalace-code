@@ -157,7 +157,7 @@ def _process_birth(pid: int) -> int | None:
         if len(parts) != 4:
             raise ValueError("process identity census is incomplete")
         process, parent, uid = (int(value) for value in parts[:3])
-        birth = int(time.mktime(time.strptime(parts[3], "%a %b %d %H:%M:%S %Y")))
+        birth = int(time.mktime(time.strptime(parts[3].strip(), "%a %b %d %H:%M:%S %Y")))
         if process in rows:
             raise ValueError("duplicate process identity")
         rows[process] = (parent, uid, birth)
@@ -836,14 +836,17 @@ class LaunchdUserService:
         return rc == 0, (err or out).strip()
 
     def _wait_until_unloaded(self, label: str) -> tuple[bool, str]:
-        for _attempt in range(50):
+        deadline = time.monotonic() + DEFAULT_COMMAND_TIMEOUT
+        while True:
             active, error = self._active_watch_labels()
             if error is not None:
                 return False, error
             if label not in active:
                 return True, ""
-            time.sleep(0.1)
-        return False, f"launchd job remained loaded after bootout: {label}"
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False, f"launchd job remained loaded after bootout: {label}"
+            time.sleep(min(0.1, remaining))
 
     def _bootstrap(self, label: str) -> tuple[bool, str]:
         domain = self._domains.get(label)

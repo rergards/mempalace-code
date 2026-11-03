@@ -35,10 +35,39 @@ def _completed(command, returncode=0, stdout="", stderr=""):
 
 
 def _write_suppression_inputs(root: Path, ignore_text: str) -> None:
+    _write_safe_go_manifest(root)
     (root / ".gitleaks.toml").write_text(
         'title = "test"\n[extend]\nuseDefault = true\n', encoding="utf-8"
     )
     (root / ".gitleaksignore").write_text(ignore_text, encoding="utf-8")
+
+
+# Safe floors are grounded in the primary advisory records: GO-2026-4945,
+# GHSA-mgcc-cww5-fp2q, GO-2026-5506, GO-2026-6505, GO-2026-6860,
+# GO-2026-6866, and GO-2026-6443. The otel 1.45.0 floor retains the
+# already qualified baseline shared with its SDK.
+_SAFE_GO_REQUIREMENTS = {
+    "github.com/go-jose/go-jose/v4": "v4.1.6",
+    "go.opentelemetry.io/otel": "v1.45.0",
+    "go.opentelemetry.io/otel/sdk": "v1.45.0",
+    "golang.org/x/net": "v0.62.0",
+    "google.golang.org/grpc": "v1.83.2",
+}
+
+
+def _write_safe_go_manifest(root: Path) -> Path:
+    path = root / "tools/gitleaks/go.mod"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "module fixture.invalid/scanner\n\ngo 1.27.3\n\n"
+        "require github.com/zricethezav/gitleaks/v8 v8.30.1\n\nrequire (\n"
+        + "".join(
+            f"    {name} {version} // indirect\n" for name, version in _SAFE_GO_REQUIREMENTS.items()
+        )
+        + ")\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _metadata(**overrides) -> str:
@@ -327,3 +356,145 @@ def test_composite_action_has_no_wrapper_dependency_install():
     assert "go install" in action
     assert "requirements.txt" not in action
     assert "pip install" not in action
+
+
+@pytest.mark.parametrize("entry", ["scan", "fixture_smoke"])
+@pytest.mark.parametrize("module", list(_SAFE_GO_REQUIREMENTS))
+@pytest.mark.parametrize("change", ["drop", "lower"])
+def test_unsafe_go_constraint_refuses_before_cached_scanner(tmp_path, entry, module, change):
+    _write_suppression_inputs(tmp_path, "")
+    manifest = tmp_path / "tools/gitleaks/go.mod"
+    line = f"    {module} {_SAFE_GO_REQUIREMENTS[module]} // indirect\n"
+    replacement = "" if change == "drop" else f"    {module} v0.0.1 // indirect\n"
+    manifest.write_text(manifest.read_text().replace(line, replacement))
+    invoke = getattr(gs, entry)
+    kwargs = {"artifact_dir": tmp_path / "artifacts"} if entry == "scan" else {}
+
+    with patch.object(gs, "_run") as run:
+        with pytest.raises(ValueError, match="security floor"):
+            invoke(tmp_path, **kwargs)
+    run.assert_not_called()
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_raw_pr20_manifest_refuses_before_cached_scanner(tmp_path):
+    _write_suppression_inputs(tmp_path, "")
+    (tmp_path / "tools/gitleaks/go.mod").write_text(_RAW_UNSAFE_PR20_GO_MOD)
+    with patch.object(gs, "_run") as run:
+        with pytest.raises(ValueError, match="security floor"):
+            gs.scan(tmp_path, artifact_dir=tmp_path / "artifacts")
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "replace golang.org/x/net => golang.org/x/net v0.60.0\n",
+        "exclude golang.org/x/net v0.62.0\n",
+    ],
+)
+def test_go_resolution_override_refuses_before_cached_scanner(tmp_path, suffix):
+    _write_suppression_inputs(tmp_path, "")
+    manifest = tmp_path / "tools/gitleaks/go.mod"
+    manifest.write_text(manifest.read_text() + suffix)
+    with patch.object(gs, "_run") as run:
+        with pytest.raises(ValueError, match="re-audit"):
+            gs.scan(tmp_path, artifact_dir=tmp_path / "artifacts")
+    run.assert_not_called()
+
+
+def test_gitleaks_pin_change_requires_full_graph_reaudit_before_scanner(tmp_path):
+    _write_suppression_inputs(tmp_path, "")
+    manifest = tmp_path / "tools/gitleaks/go.mod"
+    manifest.write_text(manifest.read_text().replace("v8.30.1", "v8.30.2"))
+    with patch.object(gs, "_run") as run:
+        with pytest.raises(ValueError, match="re-audit"):
+            gs.scan(tmp_path, artifact_dir=tmp_path / "artifacts")
+    run.assert_not_called()
+
+
+def test_safe_higher_go_constraint_allows_cached_scanner(tmp_path):
+    _write_suppression_inputs(tmp_path, "")
+    manifest = tmp_path / "tools/gitleaks/go.mod"
+    manifest.write_text(manifest.read_text().replace("v0.62.0", "v0.62.1"))
+    with patch.object(
+        gs, "_run", side_effect=lambda command, root: _completed(command, stdout="false\n")
+    ) as run:
+        assert gs.scan(tmp_path, artifact_dir=tmp_path / "artifacts") == 0
+    assert run.call_args_list[-1].args[0][:2] == ["gitleaks", "git"]
+
+
+_RAW_UNSAFE_PR20_GO_MOD = """module github.com/rergards/mempalace-code/tools/gitleaks
+
+go 1.27.3
+
+require github.com/zricethezav/gitleaks/v8 v8.30.1
+
+require (
+	dario.cat/mergo v1.0.2 // indirect
+	github.com/BobuSumisu/aho-corasick v1.0.3 // indirect
+	github.com/Masterminds/goutils v1.1.1 // indirect
+	github.com/Masterminds/semver/v3 v3.5.0 // indirect
+	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
+	github.com/STARRY-S/zip v0.2.3 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
+	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
+	github.com/bodgit/plumbing v1.3.0 // indirect
+	github.com/bodgit/sevenzip v1.6.5 // indirect
+	github.com/bodgit/windows v1.0.1 // indirect
+	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
+	github.com/charmbracelet/lipgloss v1.1.0 // indirect
+	github.com/charmbracelet/x/ansi v0.8.0 // indirect
+	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
+	github.com/charmbracelet/x/term v0.2.1 // indirect
+	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
+	github.com/fatih/semgroup v1.3.0 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
+	github.com/gitleaks/go-gitdiff v0.9.1 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/h2non/filetype v1.1.3 // indirect
+	github.com/hashicorp/go-version v1.9.0 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/huandu/xstrings v1.6.3 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
+	github.com/klauspost/pgzip v1.3.0 // indirect
+	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
+	github.com/mattn/go-colorable v0.1.16 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/mholt/archives v0.1.5 // indirect
+	github.com/mikelolasagasti/xz v1.0.1 // indirect
+	github.com/minio/minlz v1.2.3 // indirect
+	github.com/mitchellh/copystructure v1.2.0 // indirect
+	github.com/mitchellh/reflectwalk v1.0.2 // indirect
+	github.com/muesli/termenv v0.16.0 // indirect
+	github.com/nwaples/rardecode/v2 v2.4.5 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
+	github.com/pierrec/lz4/v4 v4.1.27 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rs/zerolog v1.35.1 // indirect
+	github.com/sagikazarmark/locafero v0.12.0 // indirect
+	github.com/shopspring/decimal v1.6.0 // indirect
+	github.com/sorairolake/lzip-go v0.3.8 // indirect
+	github.com/spf13/afero v1.15.0 // indirect
+	github.com/spf13/cast v1.10.0 // indirect
+	github.com/spf13/cobra v1.10.2 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/viper v1.21.0 // indirect
+	github.com/stangelandcl/ppmd v0.1.1 // indirect
+	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/ulikunitz/xz v0.5.17 // indirect
+	github.com/wasilibs/go-re2 v1.13.0 // indirect
+	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
+	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
+)
+"""

@@ -321,6 +321,147 @@ def test_plain_task_copy_is_reconciled_once_and_the_unique_report_is_kept(tmp_pa
     assert _rows(palace)[report] == first[report]
 
 
+def _retired_plans(tmp_path: Path, count: int = 4) -> tuple[Path, Path, list[str]]:
+    project = _project(tmp_path)
+    plans = []
+    for index in range(count):
+        plan = project / ".tasks" / f"T{index}" / ".protocols" / "review" / "plan.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(REJECTED_REPORT, encoding="utf-8")
+        plans.append(str(plan))
+    palace = tmp_path / "palace"
+    _mine(project, palace, include_ignored=[".tasks"])
+    for plan in plans:
+        Path(plan).unlink()
+    return project, palace, plans
+
+
+def test_retired_technical_snapshots_keep_one_backed_up_representative(tmp_path):
+    project, palace, plans = _retired_plans(tmp_path)
+    before = _rows(palace)
+    result = _mine(project, palace)
+    assert result["copy_sources_removed"] == 3
+    assert [source for source in plans if source in _rows(palace)] == plans[:1]
+    assert _rows(palace)[plans[0]] == before[plans[0]]
+    assert _removed(palace) == dict.fromkeys(plans[1:], plans[0])
+    removals = [entry for entry in _records(palace) if entry["event"] == "remove"]
+    assert all(Path(entry["backup"]).is_file() for entry in removals)
+    assert all(source["aliases"] for entry in removals for source in entry["sources"])
+    assert _mine(project, palace)["copy_sources_removed"] == 0
+
+
+@pytest.mark.parametrize("change", ["metadata", "text", "manual", "legacy", "incomplete"])
+def test_retired_snapshot_differences_and_protected_rows_survive(tmp_path, change):
+    project, palace, plans = _retired_plans(tmp_path)
+    store = open_store(str(palace), create=False)
+    found = store.get(where={"source_file": plans[3]}, include=["documents", "metadatas"])
+    metadata = dict(found["metadatas"][0])
+    text = found["documents"][0]
+    if change == "metadata":
+        metadata["symbol_name"] = "IndependentDecision"
+    elif change == "text":
+        text += "\nIndependent evidence."
+    elif change == "manual":
+        metadata["ingest_mode"] = "manual"
+    elif change == "legacy":
+        metadata["chunker_strategy"] = "unknown_legacy"
+    else:
+        metadata["chunk_index"] = 7
+    store.upsert(ids=[found["ids"][0]], documents=[text], metadatas=[metadata])
+    result = _mine(project, palace)
+    assert result["copy_sources_removed"] == 2
+    assert [source for source in plans if source in _rows(palace)] == [plans[0], plans[3]]
+    assert store.get(ids=found["ids"])["ids"] == found["ids"]
+
+
+def test_retired_snapshot_keeps_prior_alias_target_and_exact_kg_provenance(tmp_path, kg):
+    project, palace, plans = _retired_plans(tmp_path)
+    store = open_store(str(palace), create=False)
+    referenced = store.get(where={"source_file": plans[3]})["ids"][0]
+    kg.add_triple("Review", "records", "Rejection", source_closet=referenced, source_file=plans[3])
+    facts = _kg_dump(kg)
+    assert orchestrator._append_copy_record(
+        orchestrator._copy_reconcile_record_path(str(palace)),
+        {
+            "event": "remove",
+            "wing": "proj",
+            "sources": [{"source_file": "retired:earlier", "counterpart": plans[1]}],
+        },
+    )
+    result = _mine(project, palace, kg=kg)
+    assert result["copy_sources_removed"] == 3
+    assert [source for source in plans if source in _rows(palace)] == [plans[1]]
+    assert not store.get(ids=[referenced])["ids"]
+    assert any(
+        alias["id"] == referenced
+        for record in _records(palace)
+        if record["event"] == "remove"
+        for source in record["sources"]
+        for alias in source.get("aliases", [])
+    )
+    assert _kg_dump(kg) == facts
+
+
+@pytest.mark.parametrize("fault", ["degraded-backup", "damaged-history", "source-reappears"])
+def test_retired_snapshot_reuses_backup_history_and_absence_guards(tmp_path, monkeypatch, fault):
+    from mempalace_code import backup
+
+    project, palace, plans = _retired_plans(tmp_path)
+    before = _rows(palace)
+    if fault == "damaged-history":
+        record = orchestrator._copy_reconcile_record_path(str(palace))
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_bytes(b'{"interrupted":')
+    else:
+        actual = backup.create_backup
+
+        def backup_fault(*args, **kwargs):
+            metadata, archive = actual(*args, **kwargs)
+            if fault == "degraded-backup":
+                return {**metadata, "degraded": True}, archive
+            Path(plans[0]).write_text(REJECTED_REPORT, encoding="utf-8")
+            return metadata, archive
+
+        monkeypatch.setattr(backup, "create_backup", backup_fault)
+    result = _mine(project, palace)
+    assert result["copy_sources_removed"] == 0
+    assert _rows(palace) == before
+
+
+@pytest.mark.parametrize("active", ["present", "symlink"])
+def test_retired_snapshot_excludes_active_or_linked_sources(tmp_path, active):
+    project, palace, plans = _retired_plans(tmp_path)
+    if active == "present":
+        Path(plans[0]).write_text(REJECTED_REPORT, encoding="utf-8")
+    else:
+        Path(plans[0]).symlink_to(project / "missing-plan.md")
+    result = _mine(project, palace)
+    assert result["copy_sources_removed"] == 2
+    assert [source for source in plans if source in _rows(palace)] == plans[:2]
+
+
+def test_retired_snapshot_partial_delete_retries_against_recorded_representative(
+    tmp_path, monkeypatch
+):
+    project, palace, plans = _retired_plans(tmp_path)
+    actual = LanceStore.delete
+    interrupted = []
+
+    def partial(self, ids):
+        if not interrupted:
+            interrupted.append(True)
+            actual(self, ids[:1])
+            raise KeyboardInterrupt
+        return actual(self, ids)
+
+    monkeypatch.setattr(LanceStore, "delete", partial)
+    with pytest.raises(KeyboardInterrupt):
+        _mine(project, palace)
+    assert _mine(project, palace)["copy_sources_removed"] == 2
+    assert [source for source in plans if source in _rows(palace)] == plans[:1]
+    assert _mine(project, palace)["copy_sources_removed"] == 0
+
+
 def test_explicitly_included_copy_is_neither_skipped_nor_reconciled(tmp_path):
     project = _project(tmp_path)
     task = _with_task_copy(project)

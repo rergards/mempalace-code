@@ -522,6 +522,8 @@ def _assess_copy_batch(
     retained,
     prefix: str = "",
     rejected: Optional[list] = None,
+    retired_snapshots: Optional[dict] = None,
+    project_path: Optional[Path] = None,
 ) -> list:
     """Assess *batch* of (copy, counterpart) pairs; count each kept copy in *retained*.
 
@@ -538,7 +540,12 @@ def _assess_copy_batch(
             else:
                 retained[prefix + "rows-unreadable"] += 1
             continue
-        ids, digest, reason = _assess_generated_copy(rows_by_source, copy_file, counterpart)
+        if retired_snapshots is not None and copy_file in retired_snapshots:
+            ids, digest, reason = _assess_retired_copy(
+                rows_by_source, copy_file, counterpart, retired_snapshots, project_path
+            )
+        else:
+            ids, digest, reason = _assess_generated_copy(rows_by_source, copy_file, counterpart)
         if reason is None:
             qualified.append((copy_file, counterpart, ids, digest))
         elif rejected is not None:
@@ -594,6 +601,73 @@ def _snapshot_key(rows: list, digest: str) -> Optional[str]:
     return hashlib.sha256(group.encode("utf-8")).hexdigest()
 
 
+def _absent_technical_source(source: str, project_path: Optional[Path]) -> bool:
+    """Require a normalized technical path, no symlink component, and definite absence."""
+    if project_path is None or not _is_technical_copy_path(source, project_path):
+        return False
+    if os.path.abspath(source) != source or os.path.realpath(source) != source:
+        return False
+    try:
+        os.lstat(source)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        pass
+    return False
+
+
+def _retired_snapshot_key(rows: list, digest: str) -> Optional[str]:
+    indices = [row.get("chunk_index") for row in rows]
+    if any(not isinstance(index, int) or isinstance(index, bool) for index in indices):
+        return None
+    if sorted(indices) != list(range(len(rows))) or len({row.get("id") for row in rows}) != len(
+        rows
+    ):
+        return None
+    return _snapshot_key(rows, digest)
+
+
+def _retired_copy_classes(
+    collection, wing: str, candidates: dict, project_path: Optional[Path]
+) -> tuple:
+    """Read candidate hash classes in batches and freeze each complete stored snapshot."""
+    by_digest: dict = defaultdict(list)
+    for source, digest in candidates.items():
+        if is_valid_file_hash(digest) and _absent_technical_source(source, project_path):
+            by_digest[digest].append(source)
+    classes = []
+    proofs: dict = {}
+    for digest, sources in sorted(by_digest.items()):
+        if len(sources) < 2:
+            continue
+        sources.sort()
+        snapshots: dict = defaultdict(list)
+        for start in range(0, len(sources), _COPY_RECONCILE_BATCH):
+            batch = sources[start : start + _COPY_RECONCILE_BATCH]
+            rows = _rows_by_source(collection, wing, batch) or {}
+            for source in batch:
+                key = _retired_snapshot_key(rows.get(source, []), digest)
+                if key is not None:
+                    snapshots[key].append(source)
+        for key, members in snapshots.items():
+            if len(members) > 1:
+                classes.append([(source, "retired-snapshot-representative") for source in members])
+                proofs.update((source, (digest, key)) for source in members)
+    return classes, proofs
+
+
+def _assess_retired_copy(rows, source, counterpart, proofs, project_path) -> tuple:
+    digest, key = proofs[source]
+    for path in (source, counterpart):
+        if not _absent_technical_source(path, project_path) or proofs.get(path) != (digest, key):
+            return [], digest, "retired-source-changed"
+        if _retired_snapshot_key(rows.get(path, []), digest) != key:
+            return [], digest, "retired-snapshot-changed"
+    if _chunk_group(rows[source]) != _chunk_group(rows[counterpart]):
+        return [], digest, "retired-snapshot-changed"
+    return [row["id"] for row in rows[source]], digest, None
+
+
 def _copy_snapshot_classes(collection, wing: str, peers: dict, retained) -> list:
     """Group peer candidates into classes of one exact stored snapshot.
 
@@ -628,7 +702,15 @@ def _copy_snapshot_classes(collection, wing: str, peers: dict, retained) -> list
     return classes
 
 
-def _qualify_copy_peers(collection, wing: str, classes: list, targets: set, retained) -> list:
+def _qualify_copy_peers(
+    collection,
+    wing: str,
+    classes: list,
+    targets: set,
+    retained,
+    retired_snapshots: Optional[dict] = None,
+    project_path: Optional[Path] = None,
+) -> list:
     """Prove each snapshot peer against the one representative its class keeps.
 
     The representative is the lowest-sorted member an existing record already names
@@ -655,7 +737,13 @@ def _qualify_copy_peers(collection, wing: str, classes: list, targets: set, reta
         qualified.extend(
             (copy_file, representative)
             for copy_file, representative, _, _ in _assess_copy_batch(
-                collection, wing, batch, retained, rejected=failed
+                collection,
+                wing,
+                batch,
+                retained,
+                rejected=failed,
+                retired_snapshots=retired_snapshots,
+                project_path=project_path,
             )
         )
         for copy_file, _, _, _ in failed:
@@ -748,7 +836,14 @@ def _historical_copy_targets(record_path: Path, wing: str) -> tuple:
 
 
 def _reconcile_generated_copies(
-    collection, wing: str, pairs: list, palace_path: str, kg_path, optimize_enabled: bool
+    collection,
+    wing: str,
+    pairs: list,
+    palace_path: str,
+    kg_path,
+    optimize_enabled: bool,
+    retired_sources: Optional[dict] = None,
+    project_path: Optional[Path] = None,
 ) -> dict:
     """Delete stored rows that exactly repeat a canonical source; keep everything else.
 
@@ -766,6 +861,10 @@ def _reconcile_generated_copies(
     retained: dict = defaultdict(int)
     qualified: list = []
     rejected: list = []
+    retired_classes, retired_snapshots = _retired_copy_classes(
+        collection, wing, retired_sources or {}, project_path
+    )
+    pairs = [pair for pair in pairs if pair[0] not in retired_snapshots]
     for start in range(0, len(pairs), _COPY_RECONCILE_BATCH):
         batch = pairs[start : start + _COPY_RECONCILE_BATCH]
         qualified.extend(
@@ -781,6 +880,7 @@ def _reconcile_generated_copies(
         else:
             retained[reason] += 1
     classes = _copy_snapshot_classes(collection, wing, peers, retained)
+    classes.extend(retired_classes)
     if not qualified and not classes:
         outcome["copy_sources_retained_by_reason"] = dict(retained)
         return outcome
@@ -793,7 +893,11 @@ def _reconcile_generated_copies(
         outcome["copy_reconcile_refusal"] = history_refusal
         outcome["copy_sources_retained_by_reason"] = dict(retained)
         return outcome
-    qualified.extend(_qualify_copy_peers(collection, wing, classes, targets, retained))
+    qualified.extend(
+        _qualify_copy_peers(
+            collection, wing, classes, targets, retained, retired_snapshots, project_path
+        )
+    )
     qualified = _without_alias_targets(qualified, targets, retained)
     if not qualified:
         outcome["copy_sources_retained_by_reason"] = dict(retained)
@@ -834,7 +938,13 @@ def _reconcile_generated_copies(
         batch = chunk
         # Drift since the first assessment keeps the source.
         confirmed = _assess_copy_batch(
-            collection, wing, batch, retained, prefix="changed-before-delete:"
+            collection,
+            wing,
+            batch,
+            retained,
+            prefix="changed-before-delete:",
+            retired_snapshots=retired_snapshots,
+            project_path=project_path,
         )
         if not confirmed:
             continue
@@ -972,11 +1082,22 @@ def _run_copy_reconcile(
     skip_optimize: bool,
     *,
     retry_maintenance: bool = True,
+    retired_sources: Optional[dict] = None,
+    project_path: Optional[Path] = None,
 ) -> dict:
     optimize_enabled = not skip_optimize and MempalaceConfig().optimize_after_mine
     outcome = (
-        _reconcile_generated_copies(collection, wing, pairs, palace_path, kg_path, optimize_enabled)
-        if pairs
+        _reconcile_generated_copies(
+            collection,
+            wing,
+            pairs,
+            palace_path,
+            kg_path,
+            optimize_enabled,
+            retired_sources,
+            project_path,
+        )
+        if pairs or retired_sources
         else _no_copy_reconcile()
     )
     if (
@@ -1608,6 +1729,7 @@ def mine(
     copy_counterparts: dict = {}
     skipped_copies: set[str] = set()
     reconcile_pairs: list = []
+    retired_sources: dict = {}
 
     embedder_warmed = False
 
@@ -1704,6 +1826,13 @@ def mine(
             )
             if not is_force_included(Path(pair[0]), project_path, include_paths)
         ]
+        if limit == 0:
+            retired_sources = {
+                source: digest
+                for source, digest in existing_hashes.items()
+                if _is_technical_copy_path(source, project_path)
+                and not is_force_included(Path(source), project_path, include_paths)
+            }
         _any_changed = bool(needs_remine) or any(
             not (
                 (existing_hashes.get(sf, "") == h and existing_hashes.get(sf, "") != "")
@@ -1732,7 +1861,14 @@ def mine(
             and not config_changed
         ):
             copy_reconcile = _run_copy_reconcile(
-                collection, wing, reconcile_pairs, palace_path, kg_path, skip_optimize
+                collection,
+                wing,
+                reconcile_pairs,
+                palace_path,
+                kg_path,
+                skip_optimize,
+                retired_sources=retired_sources,
+                project_path=project_path,
             )
             elapsed = time.time() - mine_start
             mins, secs = divmod(int(elapsed), 60)
@@ -2090,6 +2226,8 @@ def mine(
                     kg_path,
                     skip_optimize,
                     retry_maintenance=False,
+                    retired_sources=retired_sources,
+                    project_path=project_path,
                 )
 
             # Architecture extraction pass: derive pattern/layer/namespace/project

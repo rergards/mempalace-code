@@ -29,6 +29,16 @@ _GLOB_CHARS = frozenset("*?[]{}")
 _SUPPRESSION_KEYS = frozenset({"allowlist", "allowlists", "disabledrules"})
 _ZERO_SHA = "0" * 40
 _MAX_FIXTURE_REPORT_BYTES = 1_000_000
+# Full selected-graph audit for this scanner pin, including dependencies that
+# are absent from its binary. Re-audit the graph before updating either table.
+_AUDITED_GITLEAKS = "v8.30.1"
+_GO_SECURITY_FLOORS = {
+    "github.com/go-jose/go-jose/v4": (4, 1, 6),
+    "go.opentelemetry.io/otel": (1, 45, 0),
+    "go.opentelemetry.io/otel/sdk": (1, 45, 0),
+    "golang.org/x/net": (0, 62, 0),
+    "google.golang.org/grpc": (1, 83, 2),
+}
 _FIXTURE_EXPECTATIONS = {
     "pypi-token.txt": "pypi-upload-token",
     "github-token.txt": "github-pat",
@@ -54,6 +64,29 @@ def _require_full_history(root: Path) -> None:
     result = _run(["git", "rev-parse", "--is-shallow-repository"], root)
     if result.returncode != 0 or result.stdout.strip() != "false":
         raise ValueError("full-history scan requires a non-shallow checkout")
+
+
+def _validate_go_security_floors(root: Path) -> None:
+    """Refuse lost safety constraints before executing an already cached scanner."""
+    path = root / "tools/gitleaks/go.mod"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Go security floor manifest is unreadable: {path}") from exc
+    if "/*" in text or re.search(r"(?m)^\s*(?:replace|exclude)\b", text):
+        raise ValueError("Go resolution overrides require a full selected-graph re-audit")
+    requirements = re.findall(
+        r"(?m)^[ \t]*(?:require[ \t]+)?(\S+)[ \t]+(v\d+\.\d+\.\d+)[ \t]*(?://[^\n]*)?$",
+        text,
+    )
+    pins = [v for name, v in requirements if name == "github.com/zricethezav/gitleaks/v8"]
+    if pins != [_AUDITED_GITLEAKS]:
+        raise ValueError("Gitleaks pin change requires a full selected-graph re-audit")
+    for module, floor in _GO_SECURITY_FLOORS.items():
+        versions = [v for name, v in requirements if name == module]
+        if len(versions) != 1 or tuple(map(int, versions[0][1:].split("."))) < floor:
+            minimum = ".".join(map(str, floor))
+            raise ValueError(f"Go security floor requires {module} >= v{minimum}")
 
 
 def _load_unique_json_object(raw: str, line_number: int) -> dict[str, object]:
@@ -166,6 +199,7 @@ def _validate_config_suppressions(root: Path) -> None:
 def validate_baseline(root: Path, *, today: date | None = None) -> None:
     """Validate governed native exact fingerprints and forbid broader suppression."""
     _validate_config_suppressions(root)
+    _validate_go_security_floors(root)
     ignore_path = root / IGNORE_PATH
     try:
         lines = ignore_path.read_text(encoding="utf-8").splitlines()

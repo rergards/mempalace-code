@@ -550,6 +550,43 @@ def _public_safety_check(text: str) -> None:
         )
 
 
+_SUCCESSFUL_FILE_PROGRESS_RE = re.compile(
+    r"([ \t]*\u2713 \[)( *[1-9][0-9]*)(/[1-9][0-9]*\] [^\r\n]+ +\+[0-9]+)(\r?\n|$)"
+)
+
+
+def _canonical_mine_progress(text: str) -> str:
+    """Compare contiguous success rows independently of discovery order.
+
+    Preserve row payloads and the raw ordinal multiset independently. All
+    other lines retain their original bytes and positions between blocks.
+    """
+    lines = text.splitlines(keepends=True)
+    index = 0
+    while index < len(lines):
+        start = index
+        rows: list[tuple[str, str, str]] = []
+        ordinals: list[str] = []
+        while index < len(lines):
+            match = _SUCCESSFUL_FILE_PROGRESS_RE.fullmatch(lines[index])
+            if match is None:
+                break
+            prefix, ordinal, payload, ending = match.groups()
+            rows.append((prefix, payload, ending))
+            ordinals.append(ordinal)
+            index += 1
+        if rows:
+            lines[start:index] = [
+                prefix + ordinal + payload + ending
+                for (prefix, payload, ending), ordinal in zip(
+                    sorted(rows), sorted(ordinals), strict=True
+                )
+            ]
+        else:
+            index += 1
+    return "".join(lines)
+
+
 def _compare_packets(fresh: Any, committed: Any, path: str = "") -> list[str]:
     """Return a list of diff descriptions between two packet dicts (empty = match).
 
@@ -557,6 +594,9 @@ def _compare_packets(fresh: Any, committed: Any, path: str = "") -> list[str]:
     accommodate minor floating-point differences across hardware.
     """
     diffs: list[str] = []
+    if path == "exhibits.mine_output" and isinstance(fresh, str) and isinstance(committed, str):
+        fresh = _canonical_mine_progress(fresh)
+        committed = _canonical_mine_progress(committed)
     if type(fresh) is not type(committed):
         diffs.append(f"{path}: type mismatch {type(fresh).__name__} vs {type(committed).__name__}")
         return diffs

@@ -17,12 +17,19 @@ import re
 import shutil
 import tempfile
 
-# ── Isolate HOME before any mempalace imports ──────────────────────────
+# Isolate HOME and product configuration before any mempalace imports.
 _original_env = {}
 _session_tmp = tempfile.mkdtemp(prefix="mempalace_session_")
 
 for _var in ("HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
     _original_env[_var] = os.environ.get(_var)
+
+# Keep explicit harness controls; inherited product settings must not override fixtures.
+for _var in tuple(os.environ):
+    if _var.startswith(("MEMPALACE_", "MEMPAL_")) and not (
+        _var.startswith("MEMPALACE_TEST_") or _var == "MEMPALACE_RELEASE_SYSTEMD_USER"
+    ):
+        _original_env[_var] = os.environ.pop(_var)
 
 os.environ["HOME"] = _session_tmp
 os.environ["USERPROFILE"] = _session_tmp
@@ -32,7 +39,8 @@ os.environ["HOMEPATH"] = os.path.splitdrive(_session_tmp)[1] or _session_tmp
 # Set disk-budget thresholds to 1 byte for the test session so existing backup/watcher
 # tests pass on CI machines regardless of available disk space. Individual tests that
 # verify disk-budget behavior mock free_bytes directly.
-os.environ.setdefault("MEMPALACE_DISK_MIN_FREE_BYTES", "1")
+_original_env.setdefault("MEMPALACE_DISK_MIN_FREE_BYTES", None)
+os.environ["MEMPALACE_DISK_MIN_FREE_BYTES"] = "1"
 
 # Now it is safe to import mempalace modules that trigger initialisation.
 import pytest  # noqa: E402

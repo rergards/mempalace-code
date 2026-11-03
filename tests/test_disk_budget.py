@@ -15,9 +15,11 @@ from unittest.mock import patch
 import pytest
 
 from mempalace_code.disk_budget import (
+    DiskBudgetError,
     DiskBudgetStatus,
     _dir_size,
     check_backup_budget,
+    check_retention_restore_budget,
     check_watch_budget,
     format_bytes,
     palace_footprint,
@@ -240,6 +242,18 @@ class TestCheckWatchBudget:
 
 
 class TestCheckBackupBudget:
+    @pytest.mark.parametrize("margin", [0, -1])
+    def test_retention_reserves_expansion_and_kg_publication(self, tmp_path, margin):
+        # A 700-byte expanded archive includes its 200-byte KG; publication
+        # requires another 200 bytes while the extracted source still exists.
+        with patch("mempalace_code.disk_budget.free_bytes", return_value=1000 + margin) as free:
+            if margin == 0:
+                check_retention_restore_budget(str(tmp_path), 700, 200, 100)
+            else:
+                with pytest.raises(DiskBudgetError, match="Retention verification needs"):
+                    check_retention_restore_budget(str(tmp_path), 700, 200, 100)
+        free.assert_called_once_with(str(tmp_path))
+
     def test_allowed_when_projected_free_above_floor(self, tmp_path):
         palace = tmp_path / "palace"
         palace.mkdir()

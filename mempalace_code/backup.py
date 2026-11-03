@@ -241,7 +241,7 @@ def _validate_archive_members(members: List[tarfile.TarInfo]) -> None:
         name = member.name
         if not name.startswith(_MANAGED_MEMBER_PREFIX):
             continue
-        if not (member.isfile() or member.isdir()):
+        if not (member.isfile() or member.isdir()) or (member.isfile() and member.size < 0):
             raise BackupArchiveError("unsafe_archive_member", name)
         rel = name[len(_MANAGED_MEMBER_PREFIX) :]
         if not rel:
@@ -586,12 +586,17 @@ def reconcile_managed_backups(palace_path: str, config=None) -> dict:
                 scratch_name = os.path.basename(scratch)
                 scratch_stat = os.stat(scratch_name, dir_fd=fd, follow_symlinks=False)
                 scratch_identity = (scratch_stat.st_dev, scratch_stat.st_ino)
+                scratch_removed = False
 
                 def remove_scratch() -> None:
+                    nonlocal scratch_removed
+                    if scratch_removed:
+                        return
                     current = os.stat(scratch_name, dir_fd=fd, follow_symlinks=False)
                     if (current.st_dev, current.st_ino) != scratch_identity:
                         raise ValueError("Retention scratch identity changed; preserved substitute")
                     shutil.rmtree(scratch_name, dir_fd=fd)
+                    scratch_removed = True
 
                 stack.callback(remove_scratch)
                 scratch_fd = os.open(
@@ -611,6 +616,7 @@ def reconcile_managed_backups(palace_path: str, config=None) -> dict:
                             os.path.join(scratch, str(index)),
                             private_target=True,
                             _archive_file=archive,
+                            _retention_min_free_bytes=config.backup_disk_min_free_bytes,
                         )
                         if not (restored.has_lance or restored.has_kg):
                             raise ValueError("Retention keeper has no recovery payload")
@@ -623,6 +629,9 @@ def reconcile_managed_backups(palace_path: str, config=None) -> dict:
                     # The verified archives remain pinned. Their disposable restored
                     # copies need not coexist while the next recovery point is checked.
                     shutil.rmtree(str(index), dir_fd=scratch_fd)
+                # Cleanup must succeed before any archive is expired. The registered
+                # callback still cleans up earlier failures, and skips this removed tree.
+                remove_scratch()
                 check_files(candidates)
                 for victim in victims:
                     check_files([*keepers, victim])
@@ -933,6 +942,7 @@ def restore_backup(
     *,
     private_target: bool = False,
     _archive_file: Optional[BinaryIO] = None,
+    _retention_min_free_bytes: Optional[int] = None,
 ) -> _RestoreMetadata:
     """Extract a backup archive into the target palace path.
 
@@ -979,6 +989,9 @@ def restore_backup(
 
     if _archive_file is not None and not private_target:
         raise ValueError("A pinned archive handle requires a private restore target")
+    retention_restore = private_target and _archive_file is not None and not force
+    if _retention_min_free_bytes is not None and not retention_restore:
+        raise ValueError("A retention scratch budget requires a pinned private non-force restore")
     if kg_path is None:
         kg_path = palace_kg_path(palace_path)
 
@@ -1014,9 +1027,34 @@ def restore_backup(
             if not force:
                 _refuse_restore_collisions(palace_path, kg_path)
 
+            # Stage beside the destination, including when its parent chain is
+            # absent. Do not create target directories until payload validation.
+            staging_parent = (
+                initial_anchor.parent
+                if initial_anchor is not None
+                else Path(palace_path).resolve().parent
+            )
+            while not staging_parent.is_dir():
+                staging_parent = staging_parent.parent
+            if retention_restore:
+                from .config import MempalaceConfig
+                from .disk_budget import check_retention_restore_budget
+
+                expanded_bytes = sum(
+                    member.size
+                    for member in members
+                    if member.isfile() and member.name.startswith(_MANAGED_MEMBER_PREFIX)
+                )
+                kg_bytes = sum(member.size for member in members if member.name == _KG_MEMBER)
+                floor = (
+                    MempalaceConfig().backup_disk_min_free_bytes
+                    if _retention_min_free_bytes is None
+                    else _retention_min_free_bytes
+                )
+                check_retention_restore_budget(str(staging_parent), expanded_bytes, kg_bytes, floor)
             with tempfile.TemporaryDirectory(
                 prefix="mempalace_restore_",
-                dir=os.path.dirname(os.path.abspath(palace_path)) if private_target else None,
+                dir=staging_parent,
             ) as tmpdir:
                 for member in members:
                     name = member.name
@@ -1353,7 +1391,38 @@ def restore_backup(
                                 raise
                             claimed_lance = os.lstat(lance_dir)
                             lance_owner = (claimed_lance.st_dev, claimed_lance.st_ino)
-                            shutil.copytree(extracted_lance, lance_dir, dirs_exist_ok=True)
+                            if retention_restore:
+                                # Staging shares the target filesystem. Move the validated
+                                # tree without a second expanded Lance copy, and retain its
+                                # inode for rollback even if publication is interrupted.
+                                moved_owner = _path_identity(extracted_lance)
+                                claimed_owner = lance_owner
+                                lance_owner = None
+                                # Keep both inodes allocated until rollback completes:
+                                # rename removes the placeholder, and an interruption may
+                                # remove the moved tree before installing a foreign owner.
+                                for owned_path, owner in (
+                                    (lance_dir, claimed_owner),
+                                    (extracted_lance, moved_owner),
+                                ):
+                                    owned_fd = os.open(
+                                        owned_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                                    )
+                                    leases.callback(os.close, owned_fd)
+                                    held = os.fstat(owned_fd)
+                                    if (held.st_dev, held.st_ino) != owner:
+                                        raise RestoreTargetError(
+                                            "Lance restore path changed ownership before publication"
+                                        )
+                                    if owned_path == lance_dir:
+                                        lance_owner = owner
+                                try:
+                                    os.replace(extracted_lance, lance_dir)
+                                finally:
+                                    if _path_identity(lance_dir) == moved_owner:
+                                        lance_owner = moved_owner
+                            else:
+                                shutil.copytree(extracted_lance, lance_dir, dirs_exist_ok=True)
                     if has_kg:
                         if force and os.path.lexists(kg_path):
                             print(

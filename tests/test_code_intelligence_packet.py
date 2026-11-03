@@ -338,6 +338,89 @@ class TestComparePackets:
         diffs = _PKT._compare_packets(p, q)
         assert any("files" in d for d in diffs)
 
+    @pytest.fixture
+    def ascii_progress_marker(self, monkeypatch):
+        pattern = _PKT._SUCCESSFUL_FILE_PROGRESS_RE.pattern.replace(r"\u2713", "OK")
+        monkeypatch.setattr(_PKT, "_SUCCESSFUL_FILE_PROGRESS_RE", _PKT.re.compile(pattern))
+
+    @staticmethod
+    def _mine_progress_output():
+        return (
+            "Mining files:\n"
+            "  OK [   1/3] architecture.md     +1\n"
+            "  OK [   2/3] auth.py             +4\n"
+            "  OK [   3/3] calculator.py       +6\n"
+            "Files processed: 3\n"
+        )
+
+    def test_mine_progress_permutation_compares_equal_without_changing_output(
+        self, ascii_progress_marker
+    ):
+        committed = self._mine_progress_output()
+        fresh = (
+            "Mining files:\n"
+            "  OK [   1/3] auth.py             +4\n"
+            "  OK [   2/3] calculator.py       +6\n"
+            "  OK [   3/3] architecture.md     +1\n"
+            "Files processed: 3\n"
+        )
+        p = {"exhibits": {"mine_output": fresh}}
+        q = {"exhibits": {"mine_output": committed}}
+        assert _PKT._compare_packets(p, q) == []
+        assert p["exhibits"]["mine_output"] == fresh
+        assert q["exhibits"]["mine_output"] == committed
+        assert _PKT._compare_packets({"mine_output": fresh}, {"mine_output": committed})
+        assert _PKT._compare_packets(
+            {"exhibits": {"other_output": fresh}}, {"exhibits": {"other_output": committed}}
+        )
+
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            ("auth.py", "other.py"),
+            ("+4", "+5"),
+            ("2/3", "2/4"),
+            ("OK [   2", "FAILED [   2"),
+            ("  OK [   2/3] auth.py             +4\n", ""),
+            ("2/3", "0/3"),
+            ("2/3", "x/3"),
+            ("2/3", "1/3"),
+            ("   2/3", "  2/3"),
+            ("+4\n", "+4\n  OK [   2/3] auth.py             +4\n"),
+            ("Files processed: 3", "Files processed: 4"),
+            ("auth.py             +4", "auth.py            +4"),
+        ],
+        ids=[
+            "filename",
+            "count",
+            "total",
+            "status",
+            "missing-row",
+            "zero-ordinal",
+            "invalid-ordinal",
+            "duplicate-ordinal",
+            "ordinal-padding",
+            "duplicate-row",
+            "summary",
+            "padding",
+        ],
+    )
+    def test_mine_progress_preserves_other_evidence(self, ascii_progress_marker, old, new):
+        committed = self._mine_progress_output()
+        fresh = committed.replace(old, new)
+        assert fresh != committed
+        assert _PKT._compare_packets(
+            {"exhibits": {"mine_output": fresh}}, {"exhibits": {"mine_output": committed}}
+        )
+
+    def test_mine_progress_does_not_cross_nonprogress_lines(self, ascii_progress_marker):
+        first, second, third = self._mine_progress_output().splitlines(keepends=True)[1:4]
+        committed = first + "Checkpoint\n" + second + third
+        fresh = second + "Checkpoint\n" + first + third
+        assert _PKT._compare_packets(
+            {"exhibits": {"mine_output": fresh}}, {"exhibits": {"mine_output": committed}}
+        )
+
     def test_float_close_values_are_equal(self):
         diffs = _PKT._compare_packets(0.91, 0.909)
         assert diffs == []

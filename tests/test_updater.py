@@ -674,6 +674,57 @@ def _domain(label: str) -> str:
 class TestLaunchdWatcherDiscovery:
     """macOS manual apply coordinates launchd; scheduling stays Linux systemd-user."""
 
+    @pytest.mark.parametrize("unload_after", [9.0, 65.0])
+    def test_wait_accepts_delayed_manager_unload(self, monkeypatch, unload_after):
+        elapsed = 0.0
+
+        def pause(seconds):
+            nonlocal elapsed
+            elapsed += seconds
+
+        monkeypatch.setattr(
+            updater, "time", SimpleNamespace(monotonic=lambda: elapsed, sleep=pause)
+        )
+
+        def runner(command):
+            assert command == ["launchctl", "list"]
+            loaded = f"42\t0\t{DEFAULT_LAUNCHD_WATCH_LABEL}" if elapsed < unload_after else ""
+            return 0, "PID\tStatus\tLabel\n" + loaded, ""
+
+        service = LaunchdUserService(runner)
+        assert service._wait_until_unloaded(DEFAULT_LAUNCHD_WATCH_LABEL) == (True, "")
+        assert unload_after <= elapsed < unload_after + 0.2
+
+    def test_wait_refuses_job_still_loaded_at_command_deadline(self, monkeypatch):
+        elapsed = 0.0
+
+        def pause(seconds):
+            nonlocal elapsed
+            elapsed += seconds
+
+        monkeypatch.setattr(
+            updater, "time", SimpleNamespace(monotonic=lambda: elapsed, sleep=pause)
+        )
+        service = LaunchdUserService(
+            lambda _command: (0, f"42\t0\t{DEFAULT_LAUNCHD_WATCH_LABEL}", "")
+        )
+        ok, detail = service._wait_until_unloaded(DEFAULT_LAUNCHD_WATCH_LABEL)
+        assert not ok
+        assert "remained loaded after bootout" in detail
+        assert elapsed == updater.DEFAULT_COMMAND_TIMEOUT
+
+    def test_wait_refuses_observation_error_without_retry(self, monkeypatch):
+        def unexpected_pause(_seconds):
+            pytest.fail("an unavailable launchd observation must stop immediately")
+
+        monkeypatch.setattr(
+            updater, "time", SimpleNamespace(monotonic=lambda: 0.0, sleep=unexpected_pause)
+        )
+        service = LaunchdUserService(lambda _command: (7, "", "launchctl unavailable"))
+        ok, detail = service._wait_until_unloaded(DEFAULT_LAUNCHD_WATCH_LABEL)
+        assert not ok
+        assert "launchctl" in detail
+
     def test_status_is_eligible_with_no_active_watcher(self, tmp_path, monkeypatch):
         manager, commands, _home = _launchd_manager(tmp_path, monkeypatch, active_labels=[])
 
@@ -1004,11 +1055,20 @@ class TestLaunchdWatcherDiscovery:
         service._discovery = WatcherDiscovery(label, True, True, "selected")
         monkeypatch.setattr(service, "_active_watch_labels", lambda: ([label], None))
         monkeypatch.setattr(service, "_plist_path", lambda _label: (Path("/owned.plist"), ""))
-        monkeypatch.setattr(updater.time, "sleep", lambda _delay: None)
+        elapsed = 0.0
+
+        def pause(seconds):
+            nonlocal elapsed
+            elapsed += seconds
+
+        monkeypatch.setattr(
+            updater, "time", SimpleNamespace(monotonic=lambda: elapsed, sleep=pause)
+        )
 
         stopped, detail = service.stop()
 
         assert stopped is False
+        assert elapsed == updater.DEFAULT_COMMAND_TIMEOUT
         assert "remained loaded after bootout" in detail
         assert commands == [["launchctl", "bootout", _domain(label)]]
         assert service._stopped == (label,)
@@ -2961,15 +3021,17 @@ class TestWriterDrain:
         assert set(observed) == {4200, 4201}
         assert sum(command[:2] == ["launchctl", "bootout"] for command in commands) == 2
 
+    @pytest.mark.parametrize("padding", ["", "    ", "\t"], ids=["plain", "spaces", "tab"])
     @pytest.mark.parametrize("outcome", ["unknown", "absent", "birth", "child", "foreign"])
     def test_default_process_observer_requires_complete_same_user_identity(
-        self, monkeypatch, outcome
+        self, monkeypatch, outcome, padding
     ):
         uid = os.geteuid() + (1 if outcome == "foreign" else 0)
         rows = "" if outcome == "absent" else f"91001 1 {uid} Tue Oct 27 12:00:00 2026"
         rows += f"\n{os.getpid()} 1 {os.geteuid()} Tue Oct 27 11:59:00 2026"
         if outcome == "child":
             rows += f"\n91002 91001 {uid} Tue Oct 27 12:00:01 2026"
+        rows = "\n".join(line + padding for line in rows.split("\n"))
         monkeypatch.setattr(
             updater.subprocess,
             "run",
