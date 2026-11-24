@@ -4,6 +4,10 @@ description: Install the checksum-locked Gitleaks CLI from tools/gitleaks.
 runs:
   using: composite
   steps:
+    - name: Verify canonical tool requirements and checksums
+      shell: bash
+      working-directory: tools/gitleaks
+      run: go mod tidy -diff
     - name: Install the pinned Gitleaks CLI from tools/gitleaks
       shell: bash
       env:

@@ -356,6 +356,7 @@ def test_composite_action_has_no_wrapper_dependency_install():
     )
 
     assert "go install" in action
+    assert "go mod tidy -diff" in action
     assert "requirements.txt" not in action
     assert "pip install" not in action
 
