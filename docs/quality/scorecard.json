@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 42924,
+    "package_code_lines": 42939,
     "package_files": 87,
-    "package_total_lines": 50821,
+    "package_total_lines": 50841,
     "test_files": 126,
-    "test_total_lines": 121020
+    "test_total_lines": 121270
   },
   "demo_gates": {
     "architecture_guard": {
@@ -62,7 +62,7 @@
       "path": "mempalace_code/wing_migration.py"
     },
     {
-      "lines": 3998,
+      "lines": 4002,
       "path": "mempalace_code/storage.py"
     },
     {
@@ -282,7 +282,7 @@
   },
   "tests": {
     "test_files": 126,
-    "test_functions": 5231
+    "test_functions": 5242
   },
   "verification_commands": [
     {

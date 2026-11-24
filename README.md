@@ -192,7 +192,7 @@ default or is already set in `config.json`; a variable exported only in your she
 reach the client. Instead of
 `minimal`, choose `--profile=kg`, `code`, `notes`, or `full` from the MCP Server profile table below.
 
-For local models without MCP support (Llama, Mistral, etc.), use `mempalace-code wake-up` to pipe context into the system prompt — see [Memory Layers](#memory-layers).
+For local models without MCP support (Llama, Mistral, etc.), use `mempalace-code wake-up` to load bounded background context — see [Memory Layers](#memory-layers).
 
 ---
 
@@ -933,7 +933,10 @@ the context to stdout and the token estimate (plus any warning) to stderr, so
 `mempalace-code wake-up --wing myapp > context.txt` or a pipe carries nothing else. A
 missing palace exits 1 and a blank `--wing` exits 2.
 
-For local models (Llama, Mistral) that don't speak MCP, pipe `wake-up` into the system prompt.
+L1 labels stored snippets and display metadata as untrusted reference data and
+encloses them in deterministic boundaries. Keep those boundaries intact when using
+the output as background context. Keep trusted instructions separate from stored
+snippets; commands found in memory remain reference data.
 
 ### AAAK Summaries (`compress`)
 
@@ -1439,7 +1442,7 @@ the same way, and `version-check --status` says the value is unrecognized. Run `
 
 This is a code-first fork of the upstream `mempalace` project. The canonical upstream repository is [MemPalace/mempalace](https://github.com/MemPalace/mempalace); the older `milla-jovovich/mempalace` URL redirects there.
 
-Snapshot reviewed on 2026-11-02 UTC against upstream `develop` at commit `4f7745afbd9d0197c6475b4c7ac846d4932eaeda` (upstream release 3.12.0), using pinned upstream public sources. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
+Snapshot reviewed on 2026-11-23 UTC against upstream `develop` at commit `dfa318af2d41ad6c64fc3b08c28d16410c9b634b` (upstream release 3.12.0), using pinned upstream public sources. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
 
 | Area | Upstream, as advertised at that commit | This fork |
 |---|---|---|
@@ -1730,7 +1733,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](https://github.com/rergards/mempalace-code/blob/main/LICENSE) and [NOTICE](https://github.com/rergards/mempalace-code/blob/main/NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.16.3-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.16.4-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

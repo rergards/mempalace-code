@@ -164,6 +164,72 @@ def test_canonical_runtime_fixes_mixed_boundary_padding_before_one_batch(tmp_pat
     assert all(sum(value * value for value in vector) == pytest.approx(1.0) for vector in vectors)
 
 
+@pytest.mark.parametrize("count", [0, 1, 8, 9, 128, 129])
+def test_canonical_runtime_bounds_inference_and_preserves_order(count, monkeypatch):
+    calls = []
+
+    class Backend:
+        def embed(self, texts):
+            calls.append(list(texts))
+            return [[float(text), 1.0] for text in texts]
+
+    embedder = object.__new__(_FastEmbedder)
+    monkeypatch.setattr(embedder, "_model", Backend(), raising=False)
+    texts = [str(index) for index in range(count)]
+    vectors = embedder.compute_source_embeddings(texts)
+
+    assert all(0 < len(batch) <= 8 for batch in calls)
+    assert [text for batch in calls for text in batch] == texts
+    assert vectors == [
+        [index / math.sqrt(index * index + 1), 1 / math.sqrt(index * index + 1)]
+        for index in range(count)
+    ]
+
+
+def test_canonical_runtime_zero_vector_after_batch_boundary_still_refuses(monkeypatch):
+    class Backend:
+        def embed(self, texts):
+            return [[0.0, 0.0] if text == "zero" else [3.0, 4.0] for text in texts]
+
+    embedder = object.__new__(_FastEmbedder)
+    monkeypatch.setattr(embedder, "_model", Backend(), raising=False)
+    with pytest.raises(RuntimeError, match="zero-length embedding"):
+        embedder.compute_source_embeddings(["valid"] * 8 + ["zero"])
+
+
+def test_real_fastembed_large_batch_memory_from_prepared_cache(monkeypatch):
+    cache = os.environ.get("MEMPALACE_TEST_HF_HOME")
+    if not cache:
+        pytest.skip("set MEMPALACE_TEST_HF_HOME after mempalace-code fetch-model")
+    if sys.platform not in {"darwin", "linux"}:
+        pytest.skip("peak process memory requires POSIX resource accounting")
+    monkeypatch.setenv("HF_HOME", cache)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import json, resource, sys; "
+            "from mempalace_code.storage import _FastEmbedder; "
+            "model = _FastEmbedder(local_files_only=True); "
+            "texts = [f'def example_{i}(value): return value + {i}' for i in range(128)]; "
+            "vectors = model.compute_source_embeddings(texts); "
+            "assert len(vectors) == 128 and all(len(v) == 384 for v in vectors); "
+            "peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss; "
+            "print(json.dumps({'peak_bytes': peak * (1024 if sys.platform == 'linux' else 1)}))",
+        ],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    # Absolute process peak covers startup and inference, even when pages are
+    # later swapped out. The measured unbounded 128-text call exceeds 1 GiB.
+    assert json.loads(completed.stdout)["peak_bytes"] <= 640 * 1024 * 1024
+
+
 @pytest.mark.parametrize(
     "backend",
     [
@@ -654,7 +720,8 @@ def test_real_fastembed_matches_former_runtime_fixture(monkeypatch):
     )
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     former = fixture["former_vectors"]
-    current = _FastEmbedder(local_files_only=True).compute_source_embeddings(fixture["texts"])
+    embedder = _FastEmbedder(local_files_only=True)
+    current = embedder.compute_source_embeddings(fixture["texts"])
 
     def cosine(left, right):
         return sum(a * b for a, b in zip(left, right)) / (
@@ -678,6 +745,15 @@ def test_real_fastembed_matches_former_runtime_fixture(monkeypatch):
         for i in range(len(current))
     ]
     assert current_order == fixture["compatibility"]["neighbor_order"]
+
+    # Cross inference boundaries against independent former-runtime vectors,
+    # including repeated texts whose positions must remain unchanged.
+    chunked = embedder.compute_source_embeddings(fixture["texts"] * 4)
+    assert len(chunked) == len(former) * 4
+    assert all(
+        cosine(reference, vector) >= fixture["compatibility"]["minimum_paired_cosine"]
+        for reference, vector in zip(former * 4, chunked)
+    )
 
 
 def test_real_cache_searches_and_appends_to_former_vector_palace_without_reindex(

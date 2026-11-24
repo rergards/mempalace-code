@@ -33,9 +33,9 @@ _MAX_FIXTURE_REPORT_BYTES = 1_000_000
 # are absent from its binary. Re-audit the graph before updating either table.
 _AUDITED_GITLEAKS = "v8.30.1"
 _GO_SECURITY_FLOORS = {
-    "github.com/go-jose/go-jose/v4": (4, 1, 6),
-    "go.opentelemetry.io/otel": (1, 45, 0),
-    "go.opentelemetry.io/otel/sdk": (1, 45, 0),
+    "github.com/go-jose/go-jose/v4": (4, 1, 7),
+    "go.opentelemetry.io/otel": (1, 47, 0),
+    "go.opentelemetry.io/otel/sdk": (1, 47, 0),
     "golang.org/x/net": (0, 62, 0),
     "google.golang.org/grpc": (1, 83, 2),
 }

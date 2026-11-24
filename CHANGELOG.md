@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## v1.16.4 — 2026-11-24
+
+### Fixed
+
+- Bound canonical FastEmbed inference batches independently of storage batches
+  to reduce retained memory after large indexing operations. Preserve the model,
+  tokenization, vector normalization and result order.
+- Label stored L1 wake-up context as untrusted reference data, retain explicit
+  boundaries and bound metadata display without modifying stored records.
+- Bound repeated `**` matching in Git ignore rules with iterative matching while
+  preserving existing prefix and directory semantics.
+
+### Security
+
+- Require OpenTelemetry API 1.45.2 to address quadratic-time traceparent parsing
+  (GHSA-mf5v-w3w3-f6cg), and lock dnspython 2.9.2 to address excessive memory
+  and CPU use (GHSA-vvf4-9x63-8xvv).
+- Update the release scanner dependency go-jose to v4.1.7 and preserve all five
+  enforced security floors.
+- Build the release scanner with Go 1.27.4 and require OpenTelemetry Go 1.47.0
+  to cover GO-2026-6859, GO-2026-6974 and GO-2026-6975. Retain Gitleaks v8.30.1
+  and the other audited security floors.
+
 ## v1.16.3 — 2026-11-02
 
 ### Fixed

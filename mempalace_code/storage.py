@@ -1464,12 +1464,16 @@ class _FastEmbedder:
 
     def compute_source_embeddings(self, texts: list[str]) -> list[list[float]]:
         vectors = []
-        for raw in self._model.embed(list(texts)):
-            vector = [float(value) for value in raw]
-            norm = math.sqrt(sum(value * value for value in vector))
-            if norm == 0:
-                raise RuntimeError("FastEmbed returned a zero-length embedding")
-            vectors.append([value / norm for value in vector])
+        # ONNX retains its largest working buffers for the model lifetime. Bound
+        # inference independently of storage batches so an idle watcher does not
+        # retain gigabytes after embedding one large mining batch.
+        for start in range(0, len(texts), 8):
+            for raw in self._model.embed(texts[start : start + 8]):
+                vector = [float(value) for value in raw]
+                norm = math.sqrt(sum(value * value for value in vector))
+                if norm == 0:
+                    raise RuntimeError("FastEmbed returned a zero-length embedding")
+                vectors.append([value / norm for value in vector])
         return vectors
 
 

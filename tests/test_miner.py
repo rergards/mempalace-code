@@ -114,6 +114,63 @@ def test_project_mining_preserves_code_identifiers_even_with_spellcheck_true():
         shutil.rmtree(tmpdir)
 
 
+def test_gitignore_root_matching_preserves_small_domain():
+    """Compare against the previous matcher, including its prefix-match contract."""
+    import fnmatch
+    from itertools import product
+
+    from mempalace_code.mining.scanner import GitignoreMatcher
+
+    def previous_match(path, pattern):
+        if not pattern:
+            return True
+        if not path:
+            return all(part == "**" for part in pattern)
+        if pattern[0] == "**":
+            return previous_match(path, pattern[1:]) or previous_match(path[1:], pattern)
+        return fnmatch.fnmatch(path[0], pattern[0]) and previous_match(path[1:], pattern[1:])
+
+    paths = [parts for size in range(4) for parts in product(("a", "b"), repeat=size)]
+    patterns = [
+        parts
+        for size in range(4)
+        for parts in product(("a", "b", "*", "?", "[ab]", "**"), repeat=size)
+    ]
+    matcher = object.__new__(GitignoreMatcher)
+    for path in paths:
+        for pattern in patterns:
+            assert matcher._match_from_root(list(path), list(pattern)) == (
+                previous_match(path, pattern)
+            ), (path, pattern)
+
+
+@pytest.mark.parametrize(
+    ("path", "pattern", "expected"),
+    [
+        (["x"] * 40, ["**"] * 12 + ["missing"], False),
+        (["x"] * 1500, ["**", "missing"], False),
+        (["x"] * 1500, ["x"] * 1500, True),
+    ],
+)
+def test_gitignore_root_matching_has_bounded_work(monkeypatch, path, pattern, expected):
+    """Hostile depth and repeated wildcards must stay within the state count."""
+    from mempalace_code.mining import scanner
+
+    original = scanner.fnmatch.fnmatch
+    comparisons = 0
+    bound = len(path) * len(pattern)
+
+    def bounded_fnmatch(name, expression):
+        nonlocal comparisons
+        comparisons += 1
+        assert comparisons <= bound, "gitignore matching revisited too many states"
+        return original(name, expression)
+
+    monkeypatch.setattr(scanner.fnmatch, "fnmatch", bounded_fnmatch)
+    matcher = object.__new__(scanner.GitignoreMatcher)
+    assert matcher._match_from_root(path, pattern) is expected
+
+
 def test_scan_project_respects_gitignore():
     tmpdir = tempfile.mkdtemp()
     try:

@@ -180,25 +180,22 @@ class GitignoreMatcher:
         return any(fnmatch.fnmatch(part, pattern) for part in parts)
 
     def _match_from_root(self, target_parts: list[str], pattern_parts: list[str]) -> bool:
-        def matches(path_index: int, pattern_index: int) -> bool:
-            if pattern_index == len(pattern_parts):
-                return True
-
-            if path_index == len(target_parts):
-                return all(part == "**" for part in pattern_parts[pattern_index:])
-
-            pattern_part = pattern_parts[pattern_index]
+        # Each state is a path position reachable after the current pattern prefix.
+        # Rolling rows bound work to path x pattern and avoid recursive depth limits.
+        reachable = [True] + [False] * len(target_parts)
+        for pattern_part in pattern_parts:
             if pattern_part == "**":
-                return matches(path_index, pattern_index + 1) or matches(
-                    path_index + 1, pattern_index
-                )
-
-            if not fnmatch.fnmatch(target_parts[path_index], pattern_part):
-                return False
-
-            return matches(path_index + 1, pattern_index + 1)
-
-        return matches(0, 0)
+                seen = False
+                for index in range(len(reachable)):
+                    seen = seen or reachable[index]
+                    reachable[index] = seen
+            else:
+                reachable = [False] + [
+                    reachable[index] and fnmatch.fnmatch(part, pattern_part)
+                    for index, part in enumerate(target_parts)
+                ]
+        # A fully consumed pattern matches any prefix, including a directory ancestor.
+        return any(reachable)
 
 
 GitignoreMatcherCache: TypeAlias = dict[Path, GitignoreMatcher | None]

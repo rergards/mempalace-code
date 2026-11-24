@@ -44,12 +44,14 @@ def _write_suppression_inputs(root: Path, ignore_text: str) -> None:
 
 # Safe floors are grounded in the primary advisory records: GO-2026-4945,
 # GHSA-mgcc-cww5-fp2q, GO-2026-5506, GO-2026-6505, GO-2026-6860,
-# GO-2026-6866, and GO-2026-6443. The otel 1.45.0 floor retains the
-# already qualified baseline shared with its SDK.
+# GO-2026-6866, and GO-2026-6443. The otel 1.47.0 floor also covers
+# GO-2026-6975 and GO-2026-6974 / GHSA-q7gw-24fr-5p69. The go-jose 4.1.7 floor
+# also covers GHSA-r39w-98wm-9pp6, GHSA-27pc-rm86-68pq, GHSA-p9j4-2j95-j4rv,
+# GHSA-v6h2-qj3f-2h6v, and GHSA-c67m-wr4h-2ccg.
 _SAFE_GO_REQUIREMENTS = {
-    "github.com/go-jose/go-jose/v4": "v4.1.6",
-    "go.opentelemetry.io/otel": "v1.45.0",
-    "go.opentelemetry.io/otel/sdk": "v1.45.0",
+    "github.com/go-jose/go-jose/v4": "v4.1.7",
+    "go.opentelemetry.io/otel": "v1.47.0",
+    "go.opentelemetry.io/otel/sdk": "v1.47.0",
     "golang.org/x/net": "v0.62.0",
     "google.golang.org/grpc": "v1.83.2",
 }
@@ -59,7 +61,7 @@ def _write_safe_go_manifest(root: Path) -> Path:
     path = root / "tools/gitleaks/go.mod"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        "module fixture.invalid/scanner\n\ngo 1.27.3\n\n"
+        "module fixture.invalid/scanner\n\ngo 1.27.4\n\n"
         "require github.com/zricethezav/gitleaks/v8 v8.30.1\n\nrequire (\n"
         + "".join(
             f"    {name} {version} // indirect\n" for name, version in _SAFE_GO_REQUIREMENTS.items()
@@ -375,6 +377,44 @@ def test_unsafe_go_constraint_refuses_before_cached_scanner(tmp_path, entry, mod
             invoke(tmp_path, **kwargs)
     run.assert_not_called()
     assert not (tmp_path / "artifacts").exists()
+
+
+@pytest.mark.parametrize("entry", ["scan", "fixture_smoke"])
+def test_go_jose_416_refuses_before_cached_scanner(tmp_path, entry):
+    _write_suppression_inputs(tmp_path, "")
+    manifest = tmp_path / "tools/gitleaks/go.mod"
+    manifest.write_text(manifest.read_text().replace("v4.1.7", "v4.1.6"))
+    invoke = getattr(gs, entry)
+    kwargs = {"artifact_dir": tmp_path / "artifacts"} if entry == "scan" else {}
+
+    with patch.object(gs, "_run") as run:
+        with pytest.raises(ValueError, match=r"go-jose/v4 >= v4\.1\.7"):
+            invoke(tmp_path, **kwargs)
+    run.assert_not_called()
+    assert not (tmp_path / "artifacts").exists()
+
+
+@pytest.mark.parametrize("entry", ["scan", "fixture_smoke"])
+@pytest.mark.parametrize("module", ["go.opentelemetry.io/otel", "go.opentelemetry.io/otel/sdk"])
+@pytest.mark.parametrize("version", ["v1.45.0", "v1.46.0"])
+def test_affected_otel_floor_refuses_before_cached_scanner(tmp_path, entry, module, version):
+    _write_suppression_inputs(tmp_path, "")
+    manifest = tmp_path / "tools/gitleaks/go.mod"
+    manifest.write_text(manifest.read_text().replace(f"{module} v1.47.0", f"{module} {version}"))
+    kwargs = {"artifact_dir": tmp_path / "artifacts"} if entry == "scan" else {}
+    with patch.object(gs, "_run") as run:
+        with pytest.raises(ValueError, match="security floor"):
+            getattr(gs, entry)(tmp_path, **kwargs)
+    run.assert_not_called()
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_repository_scanner_toolchain_covers_http_header_race():
+    # GO-2026-6859 is fixed in Go 1.27.4. CI selects its compiler from this directive.
+    manifest = (ROOT / "tools/gitleaks/go.mod").read_text(encoding="utf-8")
+    directive = next(line for line in manifest.splitlines() if line.startswith("go "))
+    version = tuple(map(int, directive.split()[1].split(".")))
+    assert version >= (1, 27, 4)
 
 
 def test_raw_pr20_manifest_refuses_before_cached_scanner(tmp_path):
