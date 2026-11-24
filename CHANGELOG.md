@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Retain the scanner's audited security dependencies during Go module maintenance
+  and reject noncanonical tool requirements and checksums in CI.
+
 ## v1.16.4 — 2026-11-24
 
 ### Fixed
