@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v1.16.5 — 2026-11-25
+
+### Changed
+
+- Refresh the scanner's Go build dependencies, including gRPC 1.85.0,
+  go-jose 4.1.9 and Protobuf 1.36.12. Keep the scanner at version 8.30.1.
+
+### Fixed
+
+- Retain the scanner's audited security dependencies during Go module maintenance
+  and reject noncanonical tool requirements and checksums in CI.
+
 ## v1.16.4 — 2026-11-24
 
 ### Fixed

@@ -1012,7 +1012,7 @@ wheels = [
 
 [[package]]
 name = "mempalace-code"
-version = "1.16.4"
+version = "1.16.5"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },

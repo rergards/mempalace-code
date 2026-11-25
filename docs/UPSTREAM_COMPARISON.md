@@ -6,10 +6,10 @@ This is the source-pinned comparison between `rergards/mempalace-code` and publi
 
 | Field | Value |
 |---|---|
-| Reviewed date | `2026-11-23` (UTC) |
+| Reviewed date | `2026-11-25` (UTC) |
 | Canonical upstream repository | <https://github.com/MemPalace/mempalace> |
 | Branch reviewed | `develop` |
-| Commit reviewed | `dfa318af2d41ad6c64fc3b08c28d16410c9b634b` |
+| Commit reviewed | `7ea916dcf6c80490aeea8f4a732bb23344c10327` |
 | Previous reviewed commit | `43122aefb8ed58e9fa4e1953e15ce70026339ec2` |
 | Previous reviewed date | `2026-10-03` |
 | Upstream release described by its changelog | `3.12.0` |
@@ -17,156 +17,161 @@ This is the source-pinned comparison between `rergards/mempalace-code` and publi
 
 ## Source Links
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/README.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/CHANGELOG.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/pyproject.toml>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.codex-plugin/plugin.json>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.claude-plugin/plugin.json>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.agents/plugins/marketplace.json>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.mcp.json>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.dsh-plugin/README.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/crates/README.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/benchmarks/PRIVATE_PALACE.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/docs/rfcs/003-agent-logstream-coordination.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/docs/rfcs/004-replicated-palace.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/docs/rfcs/005-agent-identity-routing.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/integrations/shared/coordination-protocol.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/website/guide/lightweight-mcp.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/config.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/split_mega_files.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/update_awareness.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/hub_client.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/logstream.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/__init__.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/http.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/protocol.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/runtime.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/searcher/__init__.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/searcher/ranking.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/embedding.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/backends/qdrant.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/backends/rust_exact.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli/__init__.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli/parser.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli_write_routing.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/knowledge_graph.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_light_server.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/query_parser.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/normalize.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/entity_registry.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/diary_ingest.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/daemon.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/source_identity.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/wal.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/sync.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/schemas.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/backends/_inproc_sqlite.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_proxy.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli/cmd_repair.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/palace/mined.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/docs/CLOSETS.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/convo_miner.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/palace_audit.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/backends/chroma.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/_session.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/searcher/candidates.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/_guards.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/tools_write.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli/cmd_sync.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/tools_coord.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli/_hub.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/website/reference/benchmarks.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/skills/mempalace-recall/SKILL.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/tools_read.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/hallways.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/tunnels_tool.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/hooks_cli.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/rooms.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli/cmd_rooms.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/palace/writes.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/embeddinggemma2.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/llm_client.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/tool_capabilities.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/paths.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/timeutil.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/fsio.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/backends/_filters.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/stored_text.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/README.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/CHANGELOG.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/pyproject.toml>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.codex-plugin/plugin.json>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.claude-plugin/plugin.json>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.agents/plugins/marketplace.json>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.mcp.json>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.dsh-plugin/README.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/crates/README.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/benchmarks/PRIVATE_PALACE.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/docs/rfcs/003-agent-logstream-coordination.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/docs/rfcs/004-replicated-palace.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/docs/rfcs/005-agent-identity-routing.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/integrations/shared/coordination-protocol.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/website/guide/lightweight-mcp.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/config.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/split_mega_files.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/update_awareness.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/hub_client.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/logstream.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/__init__.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/http.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/protocol.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/runtime.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/searcher/__init__.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/searcher/ranking.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/embedding.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/backends/qdrant.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/backends/rust_exact.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli/__init__.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli/parser.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli_write_routing.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/knowledge_graph.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_light_server.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/query_parser.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/normalize.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/entity_registry.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/diary_ingest.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/daemon.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/source_identity.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/wal.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/sync.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/schemas.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/backends/_inproc_sqlite.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_proxy.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli/cmd_repair.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/palace/mined.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/docs/CLOSETS.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/convo_miner.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/palace_audit.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/backends/chroma.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/_session.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/searcher/candidates.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/_guards.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/tools_write.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli/cmd_sync.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/tools_coord.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli/_hub.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/website/reference/benchmarks.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/skills/mempalace-recall/SKILL.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/tools_read.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/hallways.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/tunnels_tool.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/hooks_cli.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/rooms.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli/cmd_rooms.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/palace/writes.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/embeddinggemma2.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/llm_client.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/tool_capabilities.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/paths.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/timeutil.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/fsio.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/backends/_filters.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/stored_text.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.github/workflows/publish.yml>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/backends/sqlite_exact.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/entity_detector.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/tools_kg.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/miner.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/repair.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/mcp/test_write_tools.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_embeddinggemma2.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_retention_env.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.github/workflows/publish.yml>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/backends/sqlite_exact.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/entity_detector.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/tools_kg.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/miner.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/repair.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/mcp/test_write_tools.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_embeddinggemma2.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_retention_env.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_embedding.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/hooks/cursor/lib/common.sh>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/hooks/antigravity/lib/common.sh>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/benchmarks/longmemeval_bench.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/i18n/en.json>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/palace/palace_lock.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_embedding.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/hooks/cursor/lib/common.sh>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/hooks/antigravity/lib/common.sh>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/benchmarks/longmemeval_bench.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/i18n/en.json>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/palace/palace_lock.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/conftest.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/integrations/openclaw/SKILL.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.dsh-plugin/lib/recall.js>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/conftest.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/integrations/openclaw/SKILL.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.dsh-plugin/lib/recall.js>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.github/workflows/release-native.yml>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.github/workflows/release-native.yml>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.github/workflows/docker-publish.yml>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.github/workflows/docker-publish.yml>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/closet_llm.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/closet_llm.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/layers.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/layers.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/maintenance_paths.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/maintenance_paths.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/_mine_exit_watchdog.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/_mine_exit_watchdog.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/_proc.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/_proc.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/_net.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/_net.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/room_detector_local.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/room_detector_local.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_backends.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_backends.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/integrations/hermes/__init__.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/integrations/hermes/__init__.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/uv.lock>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/uv.lock>
 
-Exact compare range: <https://github.com/MemPalace/mempalace/compare/43122aefb8ed58e9fa4e1953e15ce70026339ec2...dfa318af2d41ad6c64fc3b08c28d16410c9b634b>
+Exact compare range: <https://github.com/MemPalace/mempalace/compare/43122aefb8ed58e9fa4e1953e15ce70026339ec2...7ea916dcf6c80490aeea8f4a732bb23344c10327>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/.github/workflows/ci.yml>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/.github/workflows/ci.yml>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_embedding_api.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_embedding_api.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_llm_client.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_llm_client.py>
 
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_mcp_http_transport.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/deploy/com.mempalace.server.plist>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/_source_state.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_convo_source_snapshot.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/plugins/mempalace/sidecars/palace/bridge.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/searcher/query.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_antigravity_node_hooks.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_hook_mine_shutdown.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_embeddinggemma2_chroma_warning.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/cli/cmd_kg.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/mcp_server/tools_diary.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_sqlite_exact_drawer_lookup.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/docs/rfcs/007-source-revision-publication.md>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/revisions.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/retention.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/tests/test_remine_preserves_prior_text.py>
-- <https://github.com/MemPalace/mempalace/blob/dfa318af2d41ad6c64fc3b08c28d16410c9b634b/mempalace/_blas_threads.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_mcp_http_transport.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/deploy/com.mempalace.server.plist>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/_source_state.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_convo_source_snapshot.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/plugins/mempalace/sidecars/palace/bridge.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/searcher/query.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_antigravity_node_hooks.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_hook_mine_shutdown.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_embeddinggemma2_chroma_warning.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/cli/cmd_kg.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/mcp_server/tools_diary.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_sqlite_exact_drawer_lookup.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/docs/rfcs/007-source-revision-publication.md>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/revisions.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/retention.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_remine_preserves_prior_text.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/_blas_threads.py>
+
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_repair.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/mempalace/transcript_cursor.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_transcript_cursor.py>
+- <https://github.com/MemPalace/mempalace/blob/7ea916dcf6c80490aeea8f4a732bb23344c10327/tests/test_mcp_mine.py>
 
 ## Upstream Delta Since the Previous Pin
 
-The cumulative range contains exactly 588 commits in 89 behavior groups. The 2026-11-23 refresh preserves all 518 commits and 77 decisions from 2026-11-10. The 2026-11-10 refresh preserves all 491 commits and 72 decisions from 2026-11-08. The final 2026-11-08 refresh preserves all 487 commits and 70 decisions from the earlier review that day. The 2026-11-08 refresh retains all 447 commits and 55 decisions from 2026-11-02. It retains all 438 commits and 46 decisions from the preceding 2026-10-31 review, including all 413 commits and 21 decisions from the 2026-10-30 review. That review preserved all 409 commits and 19 decisions from 2026-10-23, whose range changed 443 paths; the complete local Git range supplied that inventory because the GitHub compare API listed only its first 300 files. Each SHA is owned once below.
+The cumulative range contains exactly 599 commits in 93 behavior groups. The 2026-11-25 refresh preserves all 588 commits and 89 decisions from 2026-11-23. The 2026-11-23 refresh preserves all 518 commits and 77 decisions from 2026-11-10. The 2026-11-10 refresh preserves all 491 commits and 72 decisions from 2026-11-08. The final 2026-11-08 refresh preserves all 487 commits and 70 decisions from the earlier review that day. The 2026-11-08 refresh retains all 447 commits and 55 decisions from 2026-11-02. It retains all 438 commits and 46 decisions from the preceding 2026-10-31 review, including all 413 commits and 21 decisions from the 2026-10-30 review. That review preserved all 409 commits and 19 decisions from 2026-10-23, whose range changed 443 paths; the complete local Git range supplied that inventory because the GitHub compare API listed only its first 300 files. Each SHA is owned once below.
 
 The preceding refresh was reviewed on 2026-10-30 UTC. The incremental range from `f41e8e75ddaadf5588d5127715fa531d79eadb45` to `84582fb055a6429261f9c779da86c0561ec80adc` contains four commits dated 2026-10-25 and changes 14 paths. Public branch-head and compare responses bind this increment to the reviewed head. Incremental compare: <https://github.com/MemPalace/mempalace/compare/f41e8e75ddaadf5588d5127715fa531d79eadb45...84582fb055a6429261f9c779da86c0561ec80adc>.
 
@@ -278,6 +283,12 @@ Inventory anchor: `97642e2b11b200f4463c6cbf81b17bb49b063e97c08a17773bcf0ed2cd1fc
 | `upstream-20261123-server-blas-and-lazy-imports` | 8 | `deferred` | no | `94e87147` |
 | `upstream-20261123-lightweight-http` | 2 | `irrelevant` | no | `2b4aa7e2` |
 | `upstream-20261123-kg-process-retries` | 1 | `deferred` | no | `b2ef8fed` |
+| `upstream-20261125-rebuild-sidecars` | 3 | `equivalent-local` | no | `0e1a73e3` |
+| `upstream-20261125-stop-hook-cursor` | 4 | `irrelevant` | no | `ca80b35c` |
+| `upstream-20261125-mine-file-refusal` | 2 | `equivalent-local` | no | `6145418d` |
+| `upstream-20261125-llm-json-mode-refusal` | 2 | `irrelevant` | no | `7ea916dc` |
+
+Current inventory anchor: `ee78c6cef7198099e93ef49e511e9238b7580ebce8961f8b292446ead3a2a943` (`sha256`, 599 commits).
 
 Review groups:
 
@@ -370,6 +381,10 @@ Review groups:
 - `94e87147`: `a0a9c976`, `e225cb67`, `990e0aee`, `fec575bb`, `c201f709`, `b8e2a81f`, `51717e00`
 - `2b4aa7e2`: `98514587`
 - `b2ef8fed`
+- `0e1a73e3`: `252ba8e0`, `71401b9d`
+- `ca80b35c`: `2812973f`, `35668852`, `e08f6100`
+- `6145418d`: `ce1e2db1`
+- `7ea916dc`: `18774cba`
 
 ### Applicability
 
@@ -463,6 +478,18 @@ The adopted preservation guard refuses ambiguity; it does not assign new upstrea
 - `upstream-20261123-lightweight-http` uses `irrelevant`. The fork exposes named stdio tool profiles through the official MCP SDK. It has no upstream hub HTTP transport or PQL facade. Adding a transport and authentication surface is outside this release comparison.
 
 - `upstream-20261123-kg-process-retries` uses `deferred`. The fork opens operation-local SQLite connections, uses BEGIN IMMEDIATE for writes and imports, and retries bounded WAL initialization. Existing concurrent collision and fresh-database tests cover that local owner. Upstream adds operation-wide retry decorators and cached connection lifecycle management. Those broader retry semantics are not claimed by the fork and are deferred pending a reproduced gap through its operation-local path.
+
+## 2026-11-25 Applicability Review
+
+The complete incremental range adds 11 commits and changes 10 paths. Primary compare and individual commit patches cover the complete range. Incremental compare: <https://github.com/MemPalace/mempalace/compare/dfa318af2d41ad6c64fc3b08c28d16410c9b634b...7ea916dcf6c80490aeea8f4a732bb23344c10327>. Existing decisions remain unchanged.
+
+- `upstream-20261125-rebuild-sidecars` uses `equivalent-local`. Fork full repair replaces only lance/ through _save_and_swap in mempalace_code/cli_commands/maintenance.py. Every other existing palace entry remains in place and is also copied to the recovery backup. Existing KG/state-sidecar preservation and repeated-backup regressions cover that owner. The fork refuses missing and retired Chroma palaces, so the upstream fresh Chroma-destination creation route is absent. This decision concerns sidecar preservation; it does not claim the upstream rebuild algorithm or add a revision-journal workflow.
+
+- `upstream-20261125-stop-hook-cursor` uses `irrelevant`. The fork has no mempalace.hooks_cli or transcript_cursor owner and does not consume the upstream Stop-hook transcript counter. Its optional conversation-save hooks are a separate interface. This upstream-only cursor optimization does not change supported fork mining or stdio behavior, and no conversation persistence or hook workflow is added.
+
+- `upstream-20261125-mine-file-refusal` uses `equivalent-local`. The fork tool_mine accepts a directory argument and returns success=false with Path is not a directory before starting the miner when a regular file is supplied. The existing file-path refusal regression exercises this typed MCP owner. Upstream mode selection and single-file convos routing are separate interfaces and are not copied.
+
+- `upstream-20261125-llm-json-mode-refusal` uses `irrelevant`. The fork has no upstream LLM client, external classification endpoint or response_format request path. Default embeddings remain local FastEmbed/ONNX; optional custom embedding models do not implement this LLM classification client. No provider request, fallback route or external-model capability is introduced.
 
 ## Capability Comparison
 
